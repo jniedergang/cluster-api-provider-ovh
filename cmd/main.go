@@ -37,6 +37,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	infrastructurev1alpha1 "gitea.home.zypp.fr/jniedergang/cluster-api-provider-ovhcloud/api/v1alpha1"
+	"gitea.home.zypp.fr/jniedergang/cluster-api-provider-ovhcloud/internal/controller"
 )
 
 var (
@@ -88,10 +89,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO: Register controllers here when implemented
-	// Phase 3: OVHMachine controller
-	// Phase 4: OVHCluster controller
-	_ = mgr
+	// Setup the context to be used for the controller and manager
+	ctx := ctrl.SetupSignalHandler()
+
+	err = (&controller.OVHMachineReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(ctx, mgr)
+	if err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "OVHMachine")
+		os.Exit(1)
+	}
+
+	// TODO: Phase 4 - OVHCluster controller
 
 	err = mgr.AddHealthzCheck("healthz", healthz.Ping)
 	if err != nil {
@@ -106,8 +116,6 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-
-	ctx := ctrl.SetupSignalHandler()
 
 	err = mgr.Start(ctx)
 	if err != nil {

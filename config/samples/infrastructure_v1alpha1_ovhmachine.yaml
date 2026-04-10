@@ -1,0 +1,10 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHMachine
+metadata:
+  name: ovhmachine-sample
+  namespace: default
+spec:
+  flavorName: "b2-7"
+  imageName: "Ubuntu 22.04"
+  sshKeyName: "my-ssh-key"
+  rootDiskSize: 50

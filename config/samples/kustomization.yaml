@@ -1,0 +1,3 @@
+resources:
+- infrastructure_v1alpha1_ovhcluster.yaml
+- infrastructure_v1alpha1_ovhmachine.yaml

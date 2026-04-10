@@ -1,0 +1,5 @@
+resources:
+- bases/infrastructure.cluster.x-k8s.io_ovhclusters.yaml
+- bases/infrastructure.cluster.x-k8s.io_ovhclustertemplates.yaml
+- bases/infrastructure.cluster.x-k8s.io_ovhmachines.yaml
+- bases/infrastructure.cluster.x-k8s.io_ovhmachinetemplates.yaml

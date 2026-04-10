@@ -1,0 +1,11 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+      - image: gitea.home.zypp.fr/jniedergang/cluster-api-provider-ovhcloud-amd64:dev
+        name: manager

@@ -1,0 +1,19 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHCluster
+metadata:
+  name: ovhcluster-sample
+  namespace: default
+spec:
+  serviceName: "your-ovh-project-id"
+  region: "GRA7"
+  identitySecret:
+    namespace: default
+    name: ovh-credentials
+  loadBalancerConfig:
+    subnetID: "your-subnet-id"
+  networkConfig:
+    subnetCIDR: "10.0.0.0/24"
+    gateway: "10.0.0.1"
+    dnsServers:
+    - "213.186.33.99"
+  sshKeyName: "my-ssh-key"

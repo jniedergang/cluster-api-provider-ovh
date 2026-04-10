@@ -1,0 +1,11 @@
+namespace: capiovh-system
+
+namePrefix: capiovh-
+
+resources:
+- ../crd
+- ../rbac
+- ../manager
+
+patches:
+- path: manager_image_patch.yaml

@@ -1,6 +1,6 @@
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.26.0
+ENVTEST_K8S_VERSION = 1.31.0
 
 #
 # Go.
@@ -164,7 +164,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.4.0
 CONTROLLER_TOOLS_VERSION ?= v0.16.5
-ENVTEST_VERSION ?= v0.0.0-20240531134648-6636df17d67b
+ENVTEST_VERSION ?= latest
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize

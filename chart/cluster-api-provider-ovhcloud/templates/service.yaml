@@ -16,3 +16,23 @@ spec:
     {{- include "capiovh.selectorLabels" . | nindent 4 }}
     control-plane: controller-manager
 {{- end }}
+{{- if .Values.metrics.serviceMonitor.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "capiovh.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "capiovh.labels" . | nindent 4 }}
+    control-plane: controller-manager
+spec:
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: metrics
+    name: metrics
+  selector:
+    {{- include "capiovh.selectorLabels" . | nindent 4 }}
+    control-plane: controller-manager
+{{- end }}

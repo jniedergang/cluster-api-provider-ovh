@@ -100,9 +100,34 @@ The controller exposes metrics on `:8080/metrics` (configurable via
 | `capiovh_cluster_ready` | Gauge | 1 if cluster is Ready, 0 otherwise |
 | `capiovh_machine_reconcile_duration_seconds` | Histogram | Reconcile duration (`operation` label: `normal` or `delete`) |
 | `capiovh_cluster_reconcile_duration_seconds` | Histogram | Cluster reconcile duration |
+| `capiovh_node_init_duration_seconds` | Histogram | Workload node init duration (providerID + taint) |
+| `capiovh_etcd_member_removal_duration_seconds` | Histogram | etcd member removal duration on CP deletion |
+| `capiovh_bootstrap_wait_duration_seconds` | Histogram | OVH instance BUILD → ACTIVE duration |
+| `capiovh_lb_poll_duration_seconds` | Histogram | LB find-by-name polling duration after async POST |
+| `capiovh_ovh_api_requests_total` | CounterVec | OVH API calls by `endpoint` and `outcome` (`ok`/`error`/`retry`) |
+| `capiovh_ovh_api_request_duration_seconds` | HistogramVec | OVH API call latency by `endpoint` |
 
-A `ServiceMonitor` for Prometheus Operator can be deployed via the
-`config/prometheus/` overlay (TODO).
+A `ServiceMonitor` for Prometheus Operator is shipped as a conditional
+Helm template. Enable with:
+
+```bash
+helm upgrade capiovh oci://ghcr.io/rancher-sandbox/charts/cluster-api-provider-ovhcloud \
+  --set metrics.serviceMonitor.enabled=true
+```
+
+The raw kustomize overlay is at `config/prometheus/` (uncomment the
+reference in `config/default/kustomization.yaml`).
+
+### NetworkPolicy for metrics scraping
+
+A `NetworkPolicy` restricting ingress on the metrics port to namespaces
+labelled `metrics: enabled` is available via `networkPolicy.enabled=true`
+(Helm) or the `config/network-policy/` overlay (kustomize, wired into
+`config/default`). Label your Prometheus namespace accordingly:
+
+```bash
+kubectl label namespace monitoring metrics=enabled
+```
 
 ### Logs
 
@@ -188,9 +213,23 @@ For DR:
 
 ## Observability via Grafana
 
-A pre-built Grafana dashboard (`config/grafana/dashboard.json`) shows:
-- Reconcile rate / errors per cluster
-- Machine create/delete rate
-- Time-to-ACTIVE histogram
+A pre-built Grafana dashboard (`config/grafana/capiovh-dashboard.json`,
+UID `capiovh-overview`) ships 21 panels grouped into 5 rows:
 
-(TODO: ship the dashboard JSON.)
+- **Machine Lifecycle**: instance create/delete totals, errors, creation duration (p50/p90/p99), current machine status
+- **Reconciliation Performance**: machine + cluster reconcile durations (p50/p90)
+- **OVH API & Cluster**: OVH API success + error counters, LB poll count, cluster Ready gauge
+- **etcd & Node Init**: etcd member removal duration, bootstrap wait count, node init duration (p50/p90)
+- **Reconciliation Rate**: rate(create) / rate(delete) / rate(API calls)
+
+Import it via `grafana.com` JSON import, or programmatically:
+
+```bash
+curl -X POST -H "Authorization: Bearer $GRAFANA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d @config/grafana/capiovh-dashboard.json \
+  http://grafana:3000/api/dashboards/db
+```
+
+A Prometheus datasource variable (`datasource`) is templated — select
+your Prometheus instance when first opening the dashboard.

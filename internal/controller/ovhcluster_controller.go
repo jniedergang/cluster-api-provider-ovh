@@ -551,7 +551,9 @@ func (r *OVHClusterReconciler) reconcileLoadBalancer(scope *ClusterScope) (recon
 		},
 	}
 
+	lbStart := time.Now()
 	lb, err := scope.OVHClient.CreateLoadBalancer(opts)
+	capiovhmetrics.LBPollDuration.Observe(time.Since(lbStart).Seconds())
 	if err != nil {
 		conditions.MarkFalse(scope.OVHCluster, infrav1.LoadBalancerReadyCondition,
 			infrav1.LoadBalancerCreationFailedReason, clusterv1.ConditionSeverityError,

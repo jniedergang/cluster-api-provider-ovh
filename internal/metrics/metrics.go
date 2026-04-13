@@ -96,6 +96,58 @@ var (
 		Name:      "cluster_ready",
 		Help:      "Current readiness status of OVH clusters (1=ready, 0=not ready)",
 	}, []string{"cluster"})
+
+	// Workload-side lifecycle metrics.
+
+	// NodeInitDuration tracks the time to patch providerID and remove the
+	// uninitialized taint on a workload node after the instance is ACTIVE.
+	NodeInitDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: namespace,
+		Name:      "node_init_duration_seconds",
+		Help:      "Time to initialize a workload node (patch providerID, remove uninitialized taint)",
+		Buckets:   []float64{1, 5, 10, 30, 60, 120, 300},
+	})
+
+	// EtcdMemberRemovalDuration tracks the time to remove an etcd member on CP deletion.
+	EtcdMemberRemovalDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: namespace,
+		Name:      "etcd_member_removal_duration_seconds",
+		Help:      "Time to remove an etcd member from the workload cluster when deleting a CP machine",
+		Buckets:   []float64{1, 5, 10, 30, 60, 120},
+	})
+
+	// BootstrapWaitDuration tracks the OVH instance BUILD -> ACTIVE delay.
+	BootstrapWaitDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: namespace,
+		Name:      "bootstrap_wait_duration_seconds",
+		Help:      "Time an OVH instance spent in BUILD state before reaching ACTIVE",
+		Buckets:   []float64{30, 60, 120, 180, 300, 600, 900},
+	})
+
+	// LBPollDuration tracks the find-by-name polling loop after an async LB POST.
+	LBPollDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: namespace,
+		Name:      "lb_poll_duration_seconds",
+		Help:      "Time to resolve a newly-created load balancer via find-by-name after the async POST",
+		Buckets:   []float64{1, 5, 10, 30, 60, 110},
+	})
+
+	// OVH API metrics.
+
+	// OVHAPIRequestsTotal counts OVH API requests by endpoint group and outcome.
+	OVHAPIRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "ovh_api_requests_total",
+		Help:      "Total number of OVH API requests, labelled by endpoint group and outcome",
+	}, []string{"endpoint", "outcome"}) // outcome: "ok" | "error" | "retry"
+
+	// OVHAPIRequestDuration tracks OVH API request latency per endpoint group.
+	OVHAPIRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace,
+		Name:      "ovh_api_request_duration_seconds",
+		Help:      "Duration of OVH API requests per endpoint group",
+		Buckets:   prometheus.DefBuckets,
+	}, []string{"endpoint"})
 )
 
 func init() {
@@ -109,5 +161,11 @@ func init() {
 		MachineReconcileDuration,
 		ClusterReconcileDuration,
 		ClusterReady,
+		NodeInitDuration,
+		EtcdMemberRemovalDuration,
+		BootstrapWaitDuration,
+		LBPollDuration,
+		OVHAPIRequestsTotal,
+		OVHAPIRequestDuration,
 	)
 }

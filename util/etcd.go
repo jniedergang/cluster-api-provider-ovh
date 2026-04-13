@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 
@@ -32,6 +33,8 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
+
+	"github.com/rancher-sandbox/cluster-api-provider-ovhcloud/internal/metrics"
 )
 
 const (
@@ -61,6 +64,11 @@ type EtcdMember struct {
 // workload cluster. This is a best-effort operation: all errors are logged as warnings
 // and do not propagate, so it never blocks VM deletion.
 func RemoveEtcdMember(ctx context.Context, logger logr.Logger, workloadConfig *rest.Config, deletedNodeName string) {
+	start := time.Now()
+	defer func() {
+		metrics.EtcdMemberRemovalDuration.Observe(time.Since(start).Seconds())
+	}()
+
 	clientset, err := kubernetes.NewForConfig(workloadConfig)
 	if err != nil {
 		logger.Info("Warning: failed to create workload cluster client for etcd cleanup", "error", err)

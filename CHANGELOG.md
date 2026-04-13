@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.1.2] - 2026-04-13
+
+### Added
+
+- **Observability**:
+  - `NetworkPolicy` restricting ingress on the metrics endpoint to
+    namespaces labelled `metrics: enabled` (Helm value
+    `networkPolicy.enabled`, kustomize overlay `config/network-policy/`)
+  - Prometheus `ServiceMonitor` + metrics `Service` on port 8080
+    (Helm value `metrics.serviceMonitor.enabled`, kustomize overlay
+    `config/prometheus/`)
+  - Six new metrics:
+    - `capiovh_node_init_duration_seconds` (workload node init)
+    - `capiovh_etcd_member_removal_duration_seconds` (CP deletion)
+    - `capiovh_bootstrap_wait_duration_seconds` (BUILD → ACTIVE)
+    - `capiovh_lb_poll_duration_seconds` (async LB POST polling)
+    - `capiovh_ovh_api_requests_total{endpoint,outcome}`
+    - `capiovh_ovh_api_request_duration_seconds{endpoint}`
+  - Pre-built Grafana dashboard (`config/grafana/capiovh-dashboard.json`,
+    UID `capiovh-overview`), 21 panels across 5 rows
+  - Documentation in `docs/operations.md` (Monitoring, NetworkPolicy,
+    Observability via Grafana sections)
+
 ## [v0.1.1] - 2026-04-13
 
 ### Fixed
@@ -72,6 +95,7 @@ Initial release.
 - Webhook validation deployed via cert-manager on RKE2 management cluster
 - Helm chart install with webhooks enabled
 
-[Unreleased]: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/compare/v0.1.2...HEAD
+[v0.1.2]: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/tag/v0.1.2
 [v0.1.1]: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/tag/v0.1.0

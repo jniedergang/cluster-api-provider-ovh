@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 
@@ -29,6 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
+	"github.com/rancher-sandbox/cluster-api-provider-ovhcloud/internal/metrics"
 )
 
 const (
@@ -47,6 +50,11 @@ func InitializeWorkloadNode(ctx context.Context, logger logr.Logger, workloadCon
 	if providerID == "" {
 		return
 	}
+
+	start := time.Now()
+	defer func() {
+		metrics.NodeInitDuration.Observe(time.Since(start).Seconds())
+	}()
 
 	clientset, err := kubernetes.NewForConfig(workloadConfig)
 	if err != nil {

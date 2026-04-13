@@ -332,6 +332,15 @@ func (r *OVHMachineReconciler) handleExistingInstance(scope *MachineScope, insta
 	case ovhclient.InstanceStatusActive:
 		logger.Info("Instance is ACTIVE", "instanceID", instance.ID)
 
+		// Observe BUILD->ACTIVE duration once per machine, on the transition to
+		// Ready. `!Status.Ready` ensures we only observe on the first ACTIVE
+		// reconcile, not every subsequent refresh.
+		if !scope.OVHMachine.Status.Ready && instance.Created != "" {
+			if createdAt, parseErr := time.Parse(time.RFC3339, instance.Created); parseErr == nil {
+				capiovhmetrics.BootstrapWaitDuration.Observe(time.Since(createdAt).Seconds())
+			}
+		}
+
 		// Set addresses from instance IPs
 		addresses := make([]clusterv1.MachineAddress, 0, len(instance.IPAddresses))
 

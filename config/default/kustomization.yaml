@@ -12,6 +12,10 @@ resources:
 # webhookcainjection_patch from patches.
 - ../webhook
 - ../certmanager
+- ../network-policy
+# [PROMETHEUS] Uncomment to deploy a ServiceMonitor for the metrics endpoint.
+# Requires the monitoring.coreos.com/v1 CRDs (prometheus-operator).
+# - ../prometheus
 
 patches:
 - path: manager_image_patch.yaml

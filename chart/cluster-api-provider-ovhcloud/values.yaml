@@ -31,6 +31,14 @@ leaderElect: true
 # Metrics endpoint configuration.
 metrics:
   bindAddress: ":8080"
+  # Prometheus ServiceMonitor (requires prometheus-operator CRDs).
+  serviceMonitor:
+    enabled: false
+
+# NetworkPolicy restricting ingress to the metrics port (8443) to namespaces
+# labeled `metrics: enabled`. Install prometheus in such a namespace to scrape.
+networkPolicy:
+  enabled: false
 
 # Health probe bind address.
 healthProbe:

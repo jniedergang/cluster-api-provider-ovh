@@ -1,0 +1,25 @@
+# CAPIOVH cluster with public API server endpoint.
+#
+# Same as minimal-cluster.yaml but adds:
+#  - loadBalancerConfig.floatingNetworkID -> public floating IP attached to LB
+#
+# After creation, controlPlaneEndpoint will be the public IP, allowing
+# kubectl access from anywhere (subject to your firewall rules).
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHCluster
+metadata:
+  namespace: demo
+  name: public-cluster
+spec:
+  serviceName: REPLACE_PROJECT_ID
+  region: EU-WEST-PAR
+  identitySecret:
+    namespace: demo
+    name: ovh-credentials
+  loadBalancerConfig:
+    flavorName: small
+    floatingNetworkID: REPLACE_FLOATING_NETWORK_UUID
+  networkConfig:
+    subnetCIDR: "10.42.0.0/24"
+  sshKeyName: my-ssh-key

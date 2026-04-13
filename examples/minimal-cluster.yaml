@@ -1,0 +1,134 @@
+# Minimal CAPIOVH cluster example.
+#
+# Creates:
+#  - a private vRack network + subnet (10.42.0.0/24)
+#  - an Octavia LB (small flavor)
+#  - 1 control plane node (b3-16) and 1 worker (b3-8) on Ubuntu 22.04
+#  - bootstrap via RKE2
+#
+# Replace the placeholders with your values, then:
+#   kubectl apply -f minimal-cluster.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  namespace: demo
+  name: ovh-credentials
+stringData:
+  endpoint: ovh-eu
+  applicationKey: REPLACE_ME
+  applicationSecret: REPLACE_ME
+  consumerKey: REPLACE_ME
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  namespace: demo
+  name: minimal
+spec:
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
+    kind: RKE2ControlPlane
+    name: minimal-cp
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: OVHCluster
+    name: minimal
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHCluster
+metadata:
+  namespace: demo
+  name: minimal
+spec:
+  serviceName: REPLACE_PROJECT_ID
+  region: EU-WEST-PAR
+  identitySecret:
+    namespace: demo
+    name: ovh-credentials
+  loadBalancerConfig:
+    flavorName: small
+  networkConfig:
+    subnetCIDR: "10.42.0.0/24"
+  sshKeyName: my-ssh-key
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
+kind: RKE2ControlPlane
+metadata:
+  namespace: demo
+  name: minimal-cp
+spec:
+  replicas: 1
+  agentConfig:
+    version: v1.31.0+rke2r1
+  serverConfig:
+    cni: calico
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: OVHMachineTemplate
+    name: minimal-cp
+    namespace: demo
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHMachineTemplate
+metadata:
+  namespace: demo
+  name: minimal-cp
+spec:
+  template:
+    spec:
+      flavorName: b3-16
+      imageName: "Ubuntu 22.04"
+      sshKeyName: my-ssh-key
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
+kind: RKE2ConfigTemplate
+metadata:
+  namespace: demo
+  name: minimal-worker
+spec:
+  template:
+    spec:
+      agentConfig: {}
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  namespace: demo
+  name: minimal-workers
+spec:
+  clusterName: minimal
+  replicas: 1
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: minimal
+  template:
+    spec:
+      clusterName: minimal
+      version: v1.31.0
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
+          kind: RKE2ConfigTemplate
+          name: minimal-worker
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: OVHMachineTemplate
+        name: minimal-worker
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHMachineTemplate
+metadata:
+  namespace: demo
+  name: minimal-worker
+spec:
+  template:
+    spec:
+      flavorName: b3-8
+      imageName: "Ubuntu 22.04"
+      sshKeyName: my-ssh-key

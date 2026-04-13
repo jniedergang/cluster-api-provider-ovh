@@ -1,0 +1,44 @@
+# Topology-based Cluster using the ovhcloud-rke2 ClusterClass.
+#
+# Prerequisite:
+#   kubectl apply -f templates/clusterclass/rke2/clusterclass-ovhcloud-rke2.yaml
+#
+# This file is what users typically write to provision a cluster:
+# ~30 lines of YAML referencing the pre-installed ClusterClass.
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  namespace: demo
+  name: my-topology-cluster
+spec:
+  topology:
+    class: ovhcloud-rke2
+    version: v1.31.0+rke2r1
+    controlPlane:
+      replicas: 3
+    workers:
+      machineDeployments:
+        - class: default-worker
+          name: workers
+          replicas: 2
+    variables:
+      - name: serviceName
+        value: REPLACE_PROJECT_ID
+      - name: region
+        value: EU-WEST-PAR
+      - name: sshKeyName
+        value: my-ssh-key
+      - name: cpFlavor
+        value: b3-16
+      - name: workerFlavor
+        value: b3-8
+      - name: image
+        value: "Ubuntu 22.04"
+      - name: subnetCIDR
+        value: "10.42.0.0/24"
+      - name: lbFlavor
+        value: small
+      # Uncomment to expose the API server publicly:
+      # - name: floatingNetworkID
+      #   value: REPLACE_FLOATING_NETWORK_UUID

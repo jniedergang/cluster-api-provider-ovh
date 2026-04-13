@@ -199,6 +199,11 @@ spec:
               instanceID:
                 description: InstanceID is the OVH instance UUID.
                 type: string
+              lbPoolMemberID:
+                description: |-
+                  LBPoolMemberID is the ID of this machine's entry in the LB backend
+                  pool of the parent OVHCluster (set only for control-plane machines).
+                type: string
               ready:
                 description: Ready is true when the provider resource is ready.
                 type: boolean

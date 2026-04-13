@@ -131,6 +131,11 @@ type OVHMachineStatus struct {
 	// VolumeIDs tracks attached additional volume IDs.
 	// +optional
 	VolumeIDs []string `json:"volumeIDs,omitempty"`
+
+	// LBPoolMemberID is the ID of this machine's entry in the LB backend
+	// pool of the parent OVHCluster (set only for control-plane machines).
+	// +optional
+	LBPoolMemberID string `json:"lbPoolMemberID,omitempty"`
 }
 
 //+kubebuilder:object:root=true

@@ -374,6 +374,14 @@ func (r *OVHMachineReconciler) handleExistingInstance(scope *MachineScope, insta
 		conditions.MarkTrue(scope.OVHMachine, infrav1.InstanceProvisioningReadyCondition)
 		conditions.MarkTrue(scope.OVHMachine, infrav1.InstanceRunningCondition)
 
+		// Register CP machines as backend members of the API server LB pool.
+		// Worker nodes are not added to the api-server pool. Best-effort: if
+		// the LB or pool isn't ready yet, we'll retry on the next reconcile.
+		if err := r.ensureLBPoolMember(scope, instance); err != nil {
+			logger.Info("Warning: failed to register CP node in LB pool, will retry",
+				"error", err)
+		}
+
 		return ctrl.Result{}, nil
 
 	case ovhclient.InstanceStatusBuild:
@@ -539,6 +547,89 @@ func (r *OVHMachineReconciler) getBootstrapData(scope *MachineScope) ([]byte, er
 	return data, nil
 }
 
+// ensureLBPoolMember registers a CP machine's primary private IP as a member
+// of the parent OVHCluster's API server LB pool. Idempotent: skips if a
+// member ID is already recorded and still present in OVH.
+//
+// Workers and machines without a ready cluster LB pool are no-ops.
+func (r *OVHMachineReconciler) ensureLBPoolMember(scope *MachineScope, instance *ovhclient.Instance) error {
+	if scope.Machine == nil || !util.IsControlPlaneMachine(scope.Machine) {
+		return nil
+	}
+
+	poolID := scope.OVHCluster.Status.PoolID
+	if poolID == "" {
+		return errors.New("OVHCluster.Status.PoolID not set yet")
+	}
+
+	// If we already recorded a member ID, check it still exists.
+	if scope.OVHMachine.Status.LBPoolMemberID != "" {
+		members, err := scope.OVHClient.ListPoolMembers(poolID)
+		if err == nil {
+			for i := range members {
+				if members[i].ID == scope.OVHMachine.Status.LBPoolMemberID {
+					return nil // already registered
+				}
+			}
+		}
+		// Member is gone (LB recreated, etc.) — fall through to re-add.
+	}
+
+	// Find the primary IPv4 private address.
+	var privateIP string
+
+	for _, ip := range instance.IPAddresses {
+		if ip.Version == 4 && ip.Type == "private" {
+			privateIP = ip.IP
+
+			break
+		}
+	}
+
+	if privateIP == "" {
+		return fmt.Errorf("no IPv4 private address on instance %s", instance.ID)
+	}
+
+	member, err := scope.OVHClient.AddPoolMember(poolID, ovhclient.CreateMemberOpts{
+		Name:         scope.Machine.Name,
+		Address:      privateIP,
+		ProtocolPort: 6443,
+		Weight:       1,
+	})
+	if err != nil {
+		return fmt.Errorf("adding pool member: %w", err)
+	}
+
+	scope.OVHMachine.Status.LBPoolMemberID = member.ID
+	(*scope.Logger).Info("Registered CP node as LB pool member",
+		"poolID", poolID, "memberID", member.ID, "address", privateIP)
+
+	return nil
+}
+
+// removeLBPoolMember removes the CP machine from the LB pool, best-effort.
+func (r *OVHMachineReconciler) removeLBPoolMember(scope *MachineScope) {
+	if scope.OVHMachine.Status.LBPoolMemberID == "" {
+		return
+	}
+
+	poolID := scope.OVHCluster.Status.PoolID
+	if poolID == "" {
+		return // pool already deleted by OVHCluster ReconcileDelete
+	}
+
+	if err := scope.OVHClient.RemovePoolMember(poolID, scope.OVHMachine.Status.LBPoolMemberID); err != nil {
+		(*scope.Logger).Info("Warning: failed to remove LB pool member",
+			"poolID", poolID,
+			"memberID", scope.OVHMachine.Status.LBPoolMemberID,
+			"error", err)
+
+		return
+	}
+
+	scope.OVHMachine.Status.LBPoolMemberID = ""
+}
+
 // ReconcileDelete handles deletion of OVH instances.
 func (r *OVHMachineReconciler) ReconcileDelete(scope *MachineScope) (reconcile.Result, error) {
 	reconcileStart := time.Now()
@@ -570,6 +661,9 @@ func (r *OVHMachineReconciler) ReconcileDelete(scope *MachineScope) (reconcile.R
 			logger.Error(err, "failed to delete volume", "volumeID", volID)
 		}
 	}
+
+	// Remove from LB pool first (best-effort, no-op for workers).
+	r.removeLBPoolMember(scope)
 
 	// Delete instance
 	if scope.OVHMachine.Status.InstanceID != "" {

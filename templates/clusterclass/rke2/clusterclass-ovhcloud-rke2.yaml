@@ -1,0 +1,257 @@
+# ClusterClass for CAPIOVH with RKE2 bootstrap.
+#
+# Install once per management cluster:
+#   kubectl apply -f clusterclass-ovhcloud-rke2.yaml
+#
+# Then create clusters in ~30 lines of YAML by referencing
+# spec.topology.class: ovhcloud-rke2 — see the cluster-template-rke2-clusterclass.yaml
+# example for full topology-based usage.
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: ClusterClass
+metadata:
+  name: ovhcloud-rke2
+spec:
+  controlPlane:
+    ref:
+      apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
+      kind: RKE2ControlPlaneTemplate
+      name: ovhcloud-rke2-control-plane
+    machineInfrastructure:
+      ref:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: OVHMachineTemplate
+        name: ovhcloud-rke2-control-plane
+  infrastructure:
+    ref:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+      kind: OVHClusterTemplate
+      name: ovhcloud-rke2-cluster
+  workers:
+    machineDeployments:
+      - class: default-worker
+        template:
+          bootstrap:
+            ref:
+              apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
+              kind: RKE2ConfigTemplate
+              name: ovhcloud-rke2-worker
+          infrastructure:
+            ref:
+              apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+              kind: OVHMachineTemplate
+              name: ovhcloud-rke2-worker
+
+  # --- Variables exposed to the Cluster ---
+  variables:
+    - name: serviceName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          description: "OVH Public Cloud project ID (serviceName)"
+    - name: region
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          description: "OVH region (e.g. EU-WEST-PAR, GRA9, SBG5)"
+          default: "EU-WEST-PAR"
+    - name: identitySecretName
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: ovh-credentials
+    - name: subnetCIDR
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: "10.42.0.0/24"
+    - name: lbFlavor
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: small
+          enum: [small, medium, large, xl]
+    - name: floatingNetworkID
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: ""
+          description: "External network for the floating IP. Leave empty to keep API server private."
+    - name: cpFlavor
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: b3-16
+    - name: workerFlavor
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: b3-8
+    - name: image
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: "Ubuntu 22.04"
+    - name: sshKeyName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+
+  # --- Patches that wire variables into the templates ---
+  patches:
+    - name: ovh-cluster-spec
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+            kind: OVHClusterTemplate
+            matchResources:
+              infrastructureCluster: true
+          jsonPatches:
+            - op: add
+              path: /spec/template/spec/serviceName
+              valueFrom:
+                variable: serviceName
+            - op: add
+              path: /spec/template/spec/region
+              valueFrom:
+                variable: region
+            - op: add
+              path: /spec/template/spec/identitySecret/name
+              valueFrom:
+                variable: identitySecretName
+            - op: add
+              path: /spec/template/spec/networkConfig/subnetCIDR
+              valueFrom:
+                variable: subnetCIDR
+            - op: add
+              path: /spec/template/spec/loadBalancerConfig/flavorName
+              valueFrom:
+                variable: lbFlavor
+            - op: add
+              path: /spec/template/spec/loadBalancerConfig/floatingNetworkID
+              valueFrom:
+                variable: floatingNetworkID
+            - op: add
+              path: /spec/template/spec/sshKeyName
+              valueFrom:
+                variable: sshKeyName
+
+    - name: cp-machine-flavor
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+            kind: OVHMachineTemplate
+            matchResources:
+              controlPlane: true
+          jsonPatches:
+            - op: add
+              path: /spec/template/spec/flavorName
+              valueFrom:
+                variable: cpFlavor
+            - op: add
+              path: /spec/template/spec/imageName
+              valueFrom:
+                variable: image
+            - op: add
+              path: /spec/template/spec/sshKeyName
+              valueFrom:
+                variable: sshKeyName
+
+    - name: worker-machine-flavor
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+            kind: OVHMachineTemplate
+            matchResources:
+              machineDeploymentClass:
+                names: [default-worker]
+          jsonPatches:
+            - op: add
+              path: /spec/template/spec/flavorName
+              valueFrom:
+                variable: workerFlavor
+            - op: add
+              path: /spec/template/spec/imageName
+              valueFrom:
+                variable: image
+            - op: add
+              path: /spec/template/spec/sshKeyName
+              valueFrom:
+                variable: sshKeyName
+
+---
+# Templates referenced by the ClusterClass above.
+
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHClusterTemplate
+metadata:
+  name: ovhcloud-rke2-cluster
+spec:
+  template:
+    spec:
+      serviceName: PLACEHOLDER  # patched
+      region: PLACEHOLDER       # patched
+      identitySecret:
+        namespace: ${NAMESPACE}
+        name: PLACEHOLDER       # patched
+      loadBalancerConfig: {}    # patched
+      networkConfig:
+        subnetCIDR: PLACEHOLDER # patched
+      sshKeyName: PLACEHOLDER   # patched
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHMachineTemplate
+metadata:
+  name: ovhcloud-rke2-control-plane
+spec:
+  template:
+    spec:
+      flavorName: PLACEHOLDER
+      imageName: PLACEHOLDER
+      sshKeyName: PLACEHOLDER
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHMachineTemplate
+metadata:
+  name: ovhcloud-rke2-worker
+spec:
+  template:
+    spec:
+      flavorName: PLACEHOLDER
+      imageName: PLACEHOLDER
+      sshKeyName: PLACEHOLDER
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
+kind: RKE2ControlPlaneTemplate
+metadata:
+  name: ovhcloud-rke2-control-plane
+spec:
+  template:
+    spec:
+      agentConfig:
+        version: ""  # set by Cluster.spec.topology.version
+      serverConfig:
+        cni: calico
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: OVHMachineTemplate
+        name: ovhcloud-rke2-control-plane
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
+kind: RKE2ConfigTemplate
+metadata:
+  name: ovhcloud-rke2-worker
+spec:
+  template:
+    spec:
+      agentConfig: {}

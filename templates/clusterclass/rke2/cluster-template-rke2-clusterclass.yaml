@@ -1,0 +1,61 @@
+# Topology-based Cluster using the ovhcloud-rke2 ClusterClass.
+#
+# Prerequisite: install the ClusterClass once with
+#   kubectl apply -f clusterclass-ovhcloud-rke2.yaml
+#
+# Variables (with defaults):
+#   NAMESPACE                  (required)
+#   CLUSTER_NAME               (required)
+#   KUBERNETES_VERSION         (required, e.g. v1.31.0)
+#   CONTROL_PLANE_MACHINE_COUNT (default 3)
+#   WORKER_MACHINE_COUNT       (default 2)
+#   OVH_SERVICE_NAME           (required)
+#   OVH_REGION                 (default EU-WEST-PAR)
+#   OVH_SSH_KEY                (required)
+#   OVH_FLAVOR_CP              (default b3-16)
+#   OVH_FLAVOR_WORKER          (default b3-8)
+#   OVH_IMAGE                  (default Ubuntu 22.04)
+#   OVH_SUBNET_CIDR            (default 10.42.0.0/24)
+#   OVH_LB_FLAVOR              (default small)
+#   OVH_FLOATING_NETWORK_ID    (optional, public IP)
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NAMESPACE}
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  namespace: ${NAMESPACE}
+  name: ${CLUSTER_NAME}
+spec:
+  topology:
+    class: ovhcloud-rke2
+    version: ${KUBERNETES_VERSION}+rke2r1
+    controlPlane:
+      replicas: ${CONTROL_PLANE_MACHINE_COUNT:=3}
+    workers:
+      machineDeployments:
+        - class: default-worker
+          name: workers
+          replicas: ${WORKER_MACHINE_COUNT:=2}
+    variables:
+      - name: serviceName
+        value: ${OVH_SERVICE_NAME}
+      - name: region
+        value: ${OVH_REGION:=EU-WEST-PAR}
+      - name: sshKeyName
+        value: ${OVH_SSH_KEY}
+      - name: cpFlavor
+        value: ${OVH_FLAVOR_CP:=b3-16}
+      - name: workerFlavor
+        value: ${OVH_FLAVOR_WORKER:=b3-8}
+      - name: image
+        value: ${OVH_IMAGE:=Ubuntu 22.04}
+      - name: subnetCIDR
+        value: ${OVH_SUBNET_CIDR:=10.42.0.0/24}
+      - name: lbFlavor
+        value: ${OVH_LB_FLAVOR:=small}
+      - name: floatingNetworkID
+        value: ${OVH_FLOATING_NETWORK_ID:=""}

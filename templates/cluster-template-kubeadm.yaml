@@ -1,0 +1,170 @@
+# Cluster API + Kubeadm bootstrap template for OVH Public Cloud.
+#
+# Renders with: clusterctl generate cluster <NAME> --from <this file>
+# Variables (with defaults via clusterctl --variable):
+#   NAMESPACE                  (required)
+#   CLUSTER_NAME               (required)
+#   KUBERNETES_VERSION         (required, e.g. v1.31.0)
+#   CONTROL_PLANE_MACHINE_COUNT (default 3)
+#   WORKER_MACHINE_COUNT       (default 2)
+#   POD_CIDR                   (default 192.168.0.0/16 — Calico default)
+#   SERVICE_CIDR               (default 10.96.0.0/12)
+#   OVH_SERVICE_NAME           (required, OVH Public Cloud project ID)
+#   OVH_REGION                 (required, e.g. EU-WEST-PAR)
+#   OVH_FLAVOR_CP              (default b3-16)
+#   OVH_FLAVOR_WORKER          (default b3-8)
+#   OVH_IMAGE                  (default Ubuntu 22.04)
+#   OVH_SSH_KEY                (required)
+#   OVH_SUBNET_CIDR            (default 10.42.0.0/24)
+#   OVH_LB_FLAVOR              (default small)
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NAMESPACE}
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  namespace: ${NAMESPACE}
+  name: ${CLUSTER_NAME}
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - ${POD_CIDR:=192.168.0.0/16}
+    services:
+      cidrBlocks:
+      - ${SERVICE_CIDR:=10.96.0.0/12}
+    serviceDomain: cluster.local
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+    kind: KubeadmControlPlane
+    name: ${CLUSTER_NAME}-control-plane
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: OVHCluster
+    name: ${CLUSTER_NAME}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHCluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  serviceName: ${OVH_SERVICE_NAME}
+  region: ${OVH_REGION}
+  identitySecret:
+    namespace: ${NAMESPACE}
+    name: ovh-credentials
+  loadBalancerConfig:
+    flavorName: ${OVH_LB_FLAVOR:=small}
+  networkConfig:
+    subnetCIDR: ${OVH_SUBNET_CIDR:=10.42.0.0/24}
+  sshKeyName: ${OVH_SSH_KEY}
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlane
+metadata:
+  namespace: ${NAMESPACE}
+  name: ${CLUSTER_NAME}-control-plane
+spec:
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT:=3}
+  version: ${KUBERNETES_VERSION}
+  machineTemplate:
+    infrastructureRef:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+      kind: OVHMachineTemplate
+      name: ${CLUSTER_NAME}-cp
+      namespace: ${NAMESPACE}
+  kubeadmConfigSpec:
+    initConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          cloud-provider: external
+    joinConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+          cloud-provider: external
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  namespace: ${NAMESPACE}
+  name: ${CLUSTER_NAME}-worker
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  namespace: ${NAMESPACE}
+  name: ${CLUSTER_NAME}-workers
+spec:
+  clusterName: ${CLUSTER_NAME}
+  replicas: ${WORKER_MACHINE_COUNT:=2}
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  template:
+    spec:
+      clusterName: ${CLUSTER_NAME}
+      version: ${KUBERNETES_VERSION}
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+          name: ${CLUSTER_NAME}-worker
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+        kind: OVHMachineTemplate
+        name: ${CLUSTER_NAME}-worker
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHMachineTemplate
+metadata:
+  namespace: ${NAMESPACE}
+  name: ${CLUSTER_NAME}-cp
+spec:
+  template:
+    spec:
+      flavorName: ${OVH_FLAVOR_CP:=b3-16}
+      imageName: ${OVH_IMAGE:=Ubuntu 22.04}
+      sshKeyName: ${OVH_SSH_KEY}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: OVHMachineTemplate
+metadata:
+  namespace: ${NAMESPACE}
+  name: ${CLUSTER_NAME}-worker
+spec:
+  template:
+    spec:
+      flavorName: ${OVH_FLAVOR_WORKER:=b3-8}
+      imageName: ${OVH_IMAGE:=Ubuntu 22.04}
+      sshKeyName: ${OVH_SSH_KEY}
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineHealthCheck
+metadata:
+  namespace: ${NAMESPACE}
+  name: ${CLUSTER_NAME}-mhc
+spec:
+  clusterName: ${CLUSTER_NAME}
+  maxUnhealthy: 34%
+  nodeStartupTimeout: 20m
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+  unhealthyConditions:
+  - type: Ready
+    status: "False"
+    timeout: 5m
+  - type: Ready
+    status: Unknown
+    timeout: 5m

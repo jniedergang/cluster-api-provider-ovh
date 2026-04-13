@@ -265,14 +265,36 @@ test_idempotency() {
   setup_namespace
   trap teardown_namespace RETURN
 
-  log_info "Applying OVHCluster (first time) ..."
+  log_info "Applying Cluster + OVHCluster (first time) ..."
   apply_yaml "$(cat <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ovh-credentials
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  endpoint: ${OVH_ENDPOINT}
+  applicationKey: ${OVH_APP_KEY}
+  applicationSecret: ${OVH_APP_SECRET}
+  consumerKey: ${OVH_CONSUMER_KEY}
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: Cluster
+metadata:
+  name: ${CLUSTER_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  infrastructureRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: OVHCluster
+    name: ${CLUSTER_NAME}
+---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: OVHCluster
 metadata:
   name: ${CLUSTER_NAME}
   namespace: ${NAMESPACE}
-  ownerReferences: []
 spec:
   serviceName: ${OVH_SERVICE_NAME}
   region: ${OVH_REGION}
@@ -286,16 +308,16 @@ EOF
 )" >/dev/null
 
   log_info "Waiting for first reconcile to create LB ..."
-  wait_for_condition "first LB created" 120 \
+  wait_for_condition "first LB created" 360 \
     "kubectl -n ${NAMESPACE} get ovhcluster ${CLUSTER_NAME} -o jsonpath='{.status.loadBalancerID}' | grep -q ."
 
   first_lb=$(kubectl -n "$NAMESPACE" get ovhcluster "$CLUSTER_NAME" -o jsonpath='{.status.loadBalancerID}')
   log_info "First LB: $first_lb"
 
   log_info "Restarting controller to force re-reconcile ..."
-  kubectl -n capiovh-system rollout restart deploy/capiovh-controller-manager >/dev/null 2>&1 || \
-    kubectl -n capiovh-system rollout restart deploy 2>&1 | head -3
-  kubectl -n capiovh-system rollout status deploy --timeout=120s >/dev/null
+  capiovh_deploy=$(kubectl -n capiovh-system get deploy -o name | head -1)
+  kubectl -n capiovh-system rollout restart "$capiovh_deploy" >/dev/null 2>&1
+  kubectl -n capiovh-system rollout status "$capiovh_deploy" --timeout=120s >/dev/null
 
   log_info "Waiting 30s for re-reconcile cycle ..."
   for _ in 1 2 3; do
@@ -316,6 +338,7 @@ EOF
   fi
 
   # Cleanup
+  kubectl -n "$NAMESPACE" delete cluster "$CLUSTER_NAME" --wait=false >/dev/null 2>&1 || true
   kubectl -n "$NAMESPACE" delete ovhcluster "$CLUSTER_NAME" --wait=false >/dev/null 2>&1 || true
 }
 

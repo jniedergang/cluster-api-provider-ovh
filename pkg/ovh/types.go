@@ -92,8 +92,8 @@ type Image struct {
 	Region       string `json:"region"`
 	CreationDate string `json:"creationDate"`
 	MinRAM       int    `json:"minRam"`
-	MinDisk      int    `json:"minDisk"`
-	Size         int64  `json:"size"`
+	MinDisk      int     `json:"minDisk"`
+	Size         float64 `json:"size"`
 	Type         string `json:"type"`
 	User         string `json:"user"`
 	Visibility   string `json:"visibility"`

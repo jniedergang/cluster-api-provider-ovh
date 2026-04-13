@@ -1,0 +1,109 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "capiovh.fullname" . }}-manager-role
+  labels:
+    {{- include "capiovh.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - ovhclusters
+  - ovhclustertemplates
+  - ovhmachines
+  - ovhmachinetemplates
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - ovhclusters/status
+  - ovhclusters/finalizers
+  - ovhmachines/status
+  - ovhmachines/finalizers
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - clusters
+  - clusters/status
+  - machines
+  - machines/status
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "capiovh.fullname" . }}-manager-rolebinding
+  labels:
+    {{- include "capiovh.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "capiovh.fullname" . }}-manager-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "capiovh.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+---
+# Leader election Role (namespaced).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "capiovh.fullname" . }}-leader-election-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "capiovh.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "capiovh.fullname" . }}-leader-election-rolebinding
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "capiovh.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "capiovh.fullname" . }}-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "capiovh.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}

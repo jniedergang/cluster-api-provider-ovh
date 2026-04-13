@@ -1,0 +1,53 @@
+# Default values for cluster-api-provider-ovhcloud.
+
+image:
+  repository: ghcr.io/rancher-sandbox/cluster-api-provider-ovhcloud
+  tag: ""  # defaults to .Chart.AppVersion if empty
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# Validating webhooks for OVHCluster and OVHMachine.
+webhooks:
+  enabled: false
+  # cert-manager Certificate secretName for webhook TLS.
+  certSecretName: webhook-server-cert
+  # When true, the chart creates a self-signed cert-manager Issuer +
+  # Certificate. Requires cert-manager already installed in the cluster.
+  certManager:
+    enabled: false
+
+# Leader election for HA deployments.
+leaderElect: true
+
+# Metrics endpoint configuration.
+metrics:
+  bindAddress: ":8080"
+
+# Health probe bind address.
+healthProbe:
+  bindAddress: ":9440"
+
+# Service account.
+serviceAccount:
+  create: true
+  name: ""  # generated from chart name if empty
+
+# Pod security context (non-root).
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]

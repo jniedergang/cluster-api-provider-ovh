@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "capiovh.fullname" . }}-controller-manager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "capiovh.labels" . | nindent 4 }}
+    control-plane: controller-manager
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "capiovh.selectorLabels" . | nindent 6 }}
+      control-plane: controller-manager
+  template:
+    metadata:
+      labels:
+        {{- include "capiovh.selectorLabels" . | nindent 8 }}
+        control-plane: controller-manager
+    spec:
+      serviceAccountName: {{ include "capiovh.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: manager
+        image: {{ include "capiovh.image" . }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args:
+        - --metrics-bind-address={{ .Values.metrics.bindAddress }}
+        - --health-probe-bind-address={{ .Values.healthProbe.bindAddress }}
+        {{- if .Values.leaderElect }}
+        - --leader-elect
+        {{- end }}
+        {{- if .Values.webhooks.enabled }}
+        - --enable-webhooks
+        {{- end }}
+        ports:
+        {{- if .Values.webhooks.enabled }}
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        {{- end }}
+        - containerPort: 9440
+          name: healthz
+          protocol: TCP
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: healthz
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: healthz
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        securityContext:
+          {{- toYaml .Values.containerSecurityContext | nindent 10 }}
+        {{- if .Values.webhooks.enabled }}
+        volumeMounts:
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: cert
+          readOnly: true
+        {{- end }}
+      {{- if .Values.webhooks.enabled }}
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: {{ .Values.webhooks.certSecretName }}
+      {{- end }}

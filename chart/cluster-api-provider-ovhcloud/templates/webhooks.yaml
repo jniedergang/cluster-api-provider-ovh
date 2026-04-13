@@ -1,0 +1,69 @@
+{{- if .Values.webhooks.enabled }}
+{{- if .Values.webhooks.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "capiovh.fullname" . }}-selfsigned-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "capiovh.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "capiovh.fullname" . }}-serving-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "capiovh.labels" . | nindent 4 }}
+spec:
+  dnsNames:
+  - {{ include "capiovh.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc
+  - {{ include "capiovh.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "capiovh.fullname" . }}-selfsigned-issuer
+  secretName: {{ .Values.webhooks.certSecretName }}
+---
+{{- end }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "capiovh.fullname" . }}-validating-webhook-configuration
+  labels:
+    {{- include "capiovh.labels" . | nindent 4 }}
+  {{- if .Values.webhooks.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "capiovh.fullname" . }}-serving-cert
+  {{- end }}
+webhooks:
+- name: vovhcluster.kb.io
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+  failurePolicy: Fail
+  clientConfig:
+    service:
+      name: {{ include "capiovh.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /validate-infrastructure-cluster-x-k8s-io-v1alpha1-ovhcluster
+  rules:
+  - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+    apiVersions: ["v1alpha1"]
+    operations: ["CREATE", "UPDATE"]
+    resources: ["ovhclusters"]
+- name: vovhmachine.kb.io
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+  failurePolicy: Fail
+  clientConfig:
+    service:
+      name: {{ include "capiovh.fullname" . }}-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /validate-infrastructure-cluster-x-k8s-io-v1alpha1-ovhmachine
+  rules:
+  - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+    apiVersions: ["v1alpha1"]
+    operations: ["CREATE", "UPDATE"]
+    resources: ["ovhmachines"]
+{{- end }}

@@ -66,7 +66,7 @@ export OVH_SSH_KEY=<ssh-key-name>      # pre-registered in OVH
 ```bash
 helm install capiovh \
   oci://ghcr.io/rancher-sandbox/charts/cluster-api-provider-ovhcloud \
-  --version 0.1.2 \
+  --version 0.2.0 \
   --namespace capiovh-system --create-namespace \
   --set webhooks.enabled=true \
   --set webhooks.certManager.enabled=true
@@ -77,7 +77,7 @@ kubectl -n capiovh-system rollout status deploy --timeout=120s
 ### Option B: raw manifest
 
 ```bash
-kubectl apply -f https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.1.2/infrastructure-components.yaml
+kubectl apply -f https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.2.0/infrastructure-components.yaml
 ```
 
 Verify:
@@ -125,7 +125,7 @@ export OVH_IMAGE="Ubuntu 24.04"
 export OVH_SUBNET_CIDR=10.42.0.0/24
 
 clusterctl generate cluster $CLUSTER_NAME \
-  --from https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.1.2/cluster-template-rke2.yaml \
+  --from https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.2.0/cluster-template-rke2.yaml \
   --target-namespace demo \
   | kubectl apply -f -
 ```

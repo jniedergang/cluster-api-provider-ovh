@@ -35,18 +35,57 @@ kubectl apply -f https://github.com/rancher-sandbox/cluster-api-provider-ovhclou
 
 ### Option 3 — Rancher Turtles (CAPIProvider)
 
+Prerequisites: a management cluster with [Rancher Turtles](https://turtles.docs.rancher.com/)
+installed (usually via the `rancher-turtles` Helm chart under Rancher
+Manager). Turtles reconciles `CAPIProvider` CRs by downloading the
+release components and keeping the provider healthy.
+
+```bash
+kubectl create namespace capiovh-system
+kubectl apply -f https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.2.0/capiprovider-ovhcloud.yaml
+```
+
+The manifest template is also shipped at `templates/capiprovider-ovhcloud.yaml`:
+
 ```yaml
 apiVersion: turtles-capi.cattle.io/v1alpha1
 kind: CAPIProvider
 metadata:
   name: ovhcloud
-  namespace: cattle-capi-system
+  namespace: capiovh-system
 spec:
+  name: ovhcloud
   type: infrastructure
-  configSecret:
-    name: ovhcloud-variables
+  version: v0.2.0
   fetchConfig:
-    url: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/v0.1.0
+    url: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.2.0/infrastructure-components.yaml
+  configSecret:
+    name: capiovh-variables
+```
+
+Set `spec.enableAutomaticUpdate: true` with a `releases/latest/download/`
+URL for automatic upgrades. Verify:
+
+```bash
+kubectl -n capiovh-system get capiprovider ovhcloud
+# NAME      TYPE             VERSION   PHASE     READY
+# ovhcloud  infrastructure   v0.2.0    Ready     True
+```
+
+See [Rancher Turtles docs](https://turtles.docs.rancher.com/) for
+`configSecret` schema and RBAC requirements.
+
+### Addon management (CAAPF / Fleet)
+
+CAPIOVH keeps the infrastructure controller lean. For CNI tuning, CSI
+drivers, and other Helm-based addons, use the
+[Cluster API Addon Provider for Fleet](https://github.com/rancher/cluster-api-addon-provider-fleet).
+Full setup in [fleet-addons.md](fleet-addons.md). TL;DR:
+
+```bash
+kubectl create namespace caapf-system
+kubectl apply -f https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.2.0/capiprovider-ovhcloud.yaml
+kubectl apply -f https://raw.githubusercontent.com/rancher-sandbox/cluster-api-provider-ovhcloud/v0.2.0/manifests/caapf-provider.yaml
 ```
 
 ## Provisioning a cluster

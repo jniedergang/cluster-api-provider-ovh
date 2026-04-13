@@ -1,0 +1,42 @@
+# HelmChartConfig to deploy Cilium on an RKE2 workload cluster via
+# Fleet. Unlike the Calico tuning example, this fully replaces Canal
+# with Cilium.
+#
+# Prerequisites on the workload cluster's RKE2 config:
+#   # /etc/rancher/rke2/config.yaml
+#   cni: cilium
+#   disable:
+#     - rke2-canal
+#
+# With `cni: cilium` set at cluster bootstrap, RKE2 does NOT install
+# Canal, and this HelmChartConfig merely tunes the bundled Cilium
+# HelmChart that RKE2 installs in its place.
+#
+# Deploy via Fleet:
+# 1. Commit this file to your fleet addons repo, e.g.
+#    `capiovh-fleet-addons/fleet/cilium-config/manifests/helmchartconfig.yaml`
+# 2. Add a fleet.yaml with clusterSelector `cni: cilium`
+# 3. Label your cluster: `kubectl label cluster <name> cni=cilium`
+#
+# Reference: https://docs.rke2.io/install/network_options#cilium
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-cilium
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    # Kube-proxy replacement for better performance; requires Linux
+    # kernel >= 5.3 on the nodes.
+    kubeProxyReplacement: strict
+    k8sServiceHost: 127.0.0.1
+    k8sServicePort: 6443
+    # Encapsulation over OVH vRack: geneve is recommended over vxlan
+    # for MTU reasons.
+    tunnel: geneve
+    ipam:
+      mode: kubernetes
+    hubble:
+      enabled: true
+      relay:
+        enabled: true

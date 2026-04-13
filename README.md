@@ -43,7 +43,7 @@ For the full walkthrough (~15 min from zero to Ready nodes), see
 ```bash
 helm install capiovh \
   oci://ghcr.io/rancher-sandbox/charts/cluster-api-provider-ovhcloud \
-  --version 0.1.2 \
+  --version 0.2.0 \
   --namespace capiovh-system --create-namespace \
   --set webhooks.enabled=true \
   --set webhooks.certManager.enabled=true
@@ -52,7 +52,7 @@ helm install capiovh \
 ### Install (manifest)
 
 ```bash
-kubectl apply -f https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.1.2/infrastructure-components.yaml
+kubectl apply -f https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.2.0/infrastructure-components.yaml
 ```
 
 ### Provision a cluster
@@ -71,7 +71,7 @@ export OVH_SERVICE_NAME=<project-id>
 export OVH_REGION=EU-WEST-PAR
 export OVH_SSH_KEY=my-key
 clusterctl generate cluster mycluster \
-  --from https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.1.2/cluster-template-kubeadm.yaml \
+  --from https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.2.0/cluster-template-kubeadm.yaml \
   --kubernetes-version v1.31.0 \
   --target-namespace demo | kubectl apply -f -
 ```
@@ -113,6 +113,7 @@ A high-level diagram and reconciliation flow is in
 - [OVH credentials guide](docs/ovh-credentials-guide.md) — how to obtain a properly scoped Consumer Key
 - [BYOI guide](docs/byoi-guide.md) — uploading custom images (openSUSE, SLES, ...) via Glance
 - [Operations](docs/operations.md) — install, monitor, upgrade, uninstall in production
+- [Fleet / CAAPF addons](docs/fleet-addons.md) — deliver CNI tuning and other Helm addons via Fleet
 - [Testing](docs/TESTING.md) — unit, envtest, and end-to-end tests
 - [Troubleshooting](docs/TROUBLESHOOTING.md) — common issues and fixes
 - [Development](docs/DEVELOPMENT.md) — dev environment setup, build, test

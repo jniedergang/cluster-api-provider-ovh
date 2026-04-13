@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.2.0] - 2026-04-14
+
+### Added
+
+- **Rancher Turtles integration**: ship
+  `templates/capiprovider-ovhcloud.yaml` (CR
+  `turtles-capi.cattle.io/v1alpha1/CAPIProvider`) so users can install,
+  upgrade and monitor CAPIOVH from Rancher Manager + Rancher Turtles.
+  The manifest is also uploaded as a release asset.
+- **Fleet / CAAPF addon management**: documented pattern for delivering
+  CNI tuning and Helm addons to workload clusters via the
+  [Cluster API Addon Provider for Fleet](https://github.com/rancher/cluster-api-addon-provider-fleet):
+  - `manifests/caapf-provider.yaml` — installs CAAPF as a `CAPIProvider`
+    of type `addon`
+  - `templates/addons/calico-helmchartconfig.yaml` — example override
+    for the Canal CNI (MTU for OVH vRack, IP pool sizing)
+  - `templates/addons/cilium-helmchartconfig.yaml` — example Cilium
+    config with kube-proxy replacement
+  - `templates/addons/README.md` — repository layout for the external
+    Fleet addon repo
+  - `docs/fleet-addons.md` — end-to-end architecture + how-to guide
+- **`metadata.yaml`**: extended with `v0.2` release series so
+  `clusterctl` accepts this minor.
+
+### Deferred to v0.3.0
+
+- LoadBalancer `Protocol` refactor to `corev1.Protocol`. Rationale in
+  [docs/RELEASE.md](docs/RELEASE.md): breaking change needing a
+  v1alpha1↔v1alpha2 conversion webhook, and `corev1.Protocol` drops
+  the HTTP value the current custom enum exposes. Will land with the
+  v1alpha2 API bump.
+
 ## [v0.1.2] - 2026-04-13
 
 ### Added
@@ -95,7 +127,8 @@ Initial release.
 - Webhook validation deployed via cert-manager on RKE2 management cluster
 - Helm chart install with webhooks enabled
 
-[Unreleased]: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/compare/v0.2.0...HEAD
+[v0.2.0]: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/tag/v0.2.0
 [v0.1.2]: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/tag/v0.1.2
 [v0.1.1]: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/tag/v0.1.0

@@ -212,6 +212,9 @@ release-manifests: $(RELEASE_DIR) $(KUSTOMIZE) ## Build the manifests to publish
 	@if [ -f templates/clusterclass/rke2/clusterclass-ovhcloud-rke2.yaml ]; then \
 		cp templates/clusterclass/rke2/clusterclass-ovhcloud-rke2.yaml $(RELEASE_DIR)/; \
 	fi
+	@if [ -f templates/capiprovider-ovhcloud.yaml ]; then \
+		cp templates/capiprovider-ovhcloud.yaml $(RELEASE_DIR)/; \
+	fi
 
 RELEASE_TAG ?= $(shell git describe --abbrev=0 2>/dev/null)
 

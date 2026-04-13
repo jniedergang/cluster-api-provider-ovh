@@ -1,0 +1,33 @@
+# Install the Cluster API Addon Provider for Fleet (CAAPF) on a
+# management cluster, via Rancher Turtles.
+#
+# CAAPF lets you deliver Helm-based addons (CNI tuning, CSI drivers,
+# cloud-controller-managers, observability agents, ...) to workload
+# clusters by committing them to a Git repo and targeting the right
+# cluster with a Fleet GitRepo + clusterSelector.
+#
+# Prerequisites:
+# - Rancher Manager + Rancher Turtles installed on the mgmt cluster
+# - The caapf-system namespace (created below)
+#
+# Deploy with:
+#   kubectl create namespace caapf-system
+#   kubectl apply -f manifests/caapf-provider.yaml
+#
+# Verify with:
+#   kubectl -n caapf-system get capiprovider fleet
+#   kubectl -n caapf-system get pods
+#
+# Upstream: https://github.com/rancher/cluster-api-addon-provider-fleet
+---
+apiVersion: turtles-capi.cattle.io/v1alpha1
+kind: CAPIProvider
+metadata:
+  name: fleet
+  namespace: caapf-system
+spec:
+  name: fleet
+  type: addon
+  version: v0.12.0
+  fetchConfig:
+    url: https://github.com/rancher/cluster-api-addon-provider-fleet/releases/download/v0.12.0/addon-components.yaml

@@ -1,0 +1,37 @@
+# CAPIProvider resource for deploying CAPIOVH via Rancher Turtles.
+#
+# Prerequisites:
+# - A management cluster running Rancher Manager with Rancher Turtles
+#   (https://turtles.docs.rancher.com/) installed
+# - The capiovh-system namespace
+#
+# Deploy with:
+#   kubectl create namespace capiovh-system
+#   kubectl apply -f capiprovider-ovhcloud.yaml
+#
+# Turtles will download the infrastructure-components.yaml from the
+# release URL below and reconcile it into the cluster, keeping the
+# provider healthy and up-to-date.
+#
+# For automatic upgrades on new releases, switch to the
+# /releases/latest/download/ URL pattern and set
+# enableAutomaticUpdate: true.
+---
+apiVersion: turtles-capi.cattle.io/v1alpha1
+kind: CAPIProvider
+metadata:
+  name: ovhcloud
+  namespace: capiovh-system
+spec:
+  name: ovhcloud
+  type: infrastructure
+  version: v0.2.0
+  # Uncomment for automatic version upgrades on new releases:
+  # enableAutomaticUpdate: true
+  fetchConfig:
+    # Pinned version (manual upgrades):
+    url: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/download/v0.2.0/infrastructure-components.yaml
+    # Floating to latest:
+    # url: https://github.com/rancher-sandbox/cluster-api-provider-ovhcloud/releases/latest/download/infrastructure-components.yaml
+  configSecret:
+    name: capiovh-variables

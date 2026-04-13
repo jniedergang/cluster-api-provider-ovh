@@ -1,0 +1,42 @@
+# HelmChartConfig to tune the RKE2-bundled Calico CNI on a workload
+# cluster. RKE2 installs Canal (Calico + Flannel) by default — this
+# manifest only *overrides* the values of the rke2-canal HelmChart that
+# RKE2 itself manages. It does NOT install a new CNI.
+#
+# Deploy via Fleet:
+# 1. Commit this file (adapted) to your fleet addons repo, e.g.
+#    `capiovh-fleet-addons/fleet/calico-config/manifests/helmchartconfig.yaml`
+# 2. Next to it, create `fleet.yaml` with a clusterSelector:
+#       namespace: fleet-default
+#       targetCustomizations:
+#         - name: calico
+#           clusterSelector:
+#             matchLabels:
+#               cni: calico
+# 3. Label your CAPIOVH workload cluster:
+#       kubectl -n <ns> label cluster <name> cni=calico
+#
+# Fleet will render the HelmChartConfig on the workload cluster; RKE2
+# will pick it up on its next reconcile and re-apply the Calico
+# HelmChart with the new values.
+#
+# Full schema: https://docs.rke2.io/helm
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-canal
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    flannel:
+      # MTU adjusted for OVH vRack (default physical MTU is 1500, vRack
+      # encapsulation needs -50 bytes of headroom).
+      iface: eth0
+      mtu: 1450
+    calico:
+      # Example: switch the IP pool block size for larger clusters.
+      ipam:
+        type: calico-ipam
+      ipPool:
+        blockSize: 24
+        nodeSelector: all()

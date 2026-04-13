@@ -124,7 +124,7 @@ jobs:
           else
             gh release create ${{ env.TAG }} --generate-notes
           fi
-          for f in metadata.yaml infrastructure-components.yaml cluster-template.yaml cluster-template-kubeadm.yaml cluster-template-rke2-floatingip.yaml clusterclass-ovhcloud-rke2.yaml; do
+          for f in metadata.yaml infrastructure-components.yaml cluster-template.yaml cluster-template-kubeadm.yaml cluster-template-rke2-floatingip.yaml clusterclass-ovhcloud-rke2.yaml capiprovider-ovhcloud.yaml; do
             if [ -f "out/${f}" ]; then
               gh release upload ${{ env.TAG }} "out/${f}" --clobber
             fi

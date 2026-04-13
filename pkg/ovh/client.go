@@ -262,7 +262,8 @@ func (c *Client) GetFlavorByName(name string) (*Flavor, error) {
 
 // --- Image Operations ---
 
-// ListImages lists all available images, optionally filtered by region.
+// ListImages lists all public images available in the project, optionally filtered by region.
+// Public images are OVH-managed (Ubuntu, Debian, etc.).
 func (c *Client) ListImages() ([]Image, error) {
 	var images []Image
 
@@ -281,30 +282,105 @@ func (c *Client) ListImages() ([]Image, error) {
 	return images, nil
 }
 
-// GetImageByName finds an image by name (partial, case-insensitive match).
+// ListSnapshots lists all private images (BYOI / snapshots) available in the project.
+// Custom images uploaded via Glance appear here, not in /image.
+func (c *Client) ListSnapshots() ([]Image, error) {
+	var snapshots []Image
+
+	path := c.projectPath("/snapshot")
+	if c.region != "" {
+		path += "?region=" + c.region
+	}
+
+	err := c.retryWithBackoff("ListSnapshots", func() error {
+		return c.api.Get(path, &snapshots)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing snapshots: %w", err)
+	}
+
+	return snapshots, nil
+}
+
+// isUUID reports whether s looks like a UUID (8-4-4-4-12 hex digits with dashes).
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// GetImageByName resolves an image identifier to an Image. The identifier may be:
+//   - a UUID (returned directly without lookup)
+//   - an image name matching a public OVH image (searched in /image)
+//   - a name matching a private/BYOI image (searched in /snapshot as fallback)
+//
+// This unified lookup lets users specify any image transparently in OVHMachine.spec.imageName.
 func (c *Client) GetImageByName(name string) (*Image, error) {
+	if name == "" {
+		return nil, fmt.Errorf("image name is empty")
+	}
+
+	// Shortcut: if the name is a UUID, trust it as-is (no lookup needed)
+	if isUUID(name) {
+		return &Image{ID: name, Name: name, Region: c.region}, nil
+	}
+
+	// 1. Search public images (most common case)
 	images, err := c.ListImages()
 	if err != nil {
 		return nil, err
 	}
 
-	nameLower := strings.ToLower(name)
+	if img := findImageByName(images, name); img != nil {
+		return img, nil
+	}
 
+	// 2. Fallback: search private/BYOI images (snapshots)
+	snapshots, err := c.ListSnapshots()
+	if err != nil {
+		// If snapshots lookup also fails, report the original "not found" with public images
+		return nil, fmt.Errorf("image %q not found in public images and snapshot lookup failed: %w", name, err)
+	}
+
+	if img := findImageByName(snapshots, name); img != nil {
+		return img, nil
+	}
+
+	return nil, fmt.Errorf("image %q not found in region %s (searched public images and BYOI snapshots)", name, c.region)
+}
+
+// findImageByName returns a pointer to the matching image (exact match preferred,
+// case-insensitive partial match as fallback), or nil if no match.
+func findImageByName(images []Image, name string) *Image {
 	// Exact match first
 	for i := range images {
 		if strings.EqualFold(images[i].Name, name) {
-			return &images[i], nil
+			return &images[i]
 		}
 	}
 
 	// Partial match fallback
+	nameLower := strings.ToLower(name)
 	for i := range images {
 		if strings.Contains(strings.ToLower(images[i].Name), nameLower) {
-			return &images[i], nil
+			return &images[i]
 		}
 	}
 
-	return nil, fmt.Errorf("image %q not found in region %s", name, c.region)
+	return nil
 }
 
 // --- SSH Key Operations ---

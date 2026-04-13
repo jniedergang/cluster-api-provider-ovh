@@ -346,6 +346,158 @@ func TestGetImageByName(t *testing.T) {
 	}
 }
 
+func TestGetImageByName_UUIDShortcut(t *testing.T) {
+	// When given a UUID, the client must NOT make any API call —
+	// it returns the UUID as-is so the caller can use it directly.
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		// No handlers — any HTTP call would 404 and fail the test
+	})
+
+	uuid := "865193d1-cd97-445c-ade9-ac9981fd1cbe"
+
+	image, err := client.GetImageByName(uuid)
+	if err != nil {
+		t.Fatalf("unexpected error for UUID input: %v", err)
+	}
+
+	if image.ID != uuid {
+		t.Errorf("expected ID=%s, got %s", uuid, image.ID)
+	}
+}
+
+func TestGetImageByName_EmptyName(t *testing.T) {
+	_, client := newTestServer(t, map[string]http.HandlerFunc{})
+
+	_, err := client.GetImageByName("")
+	if err == nil {
+		t.Fatal("expected error for empty image name")
+	}
+}
+
+func TestGetImageByName_BYOIFallback(t *testing.T) {
+	// Image not in /image (public), but exists in /snapshot (BYOI).
+	// The client must fall back to /snapshot transparently.
+	imagePath := fmt.Sprintf("/cloud/project/%s/image", testServiceName)
+	snapshotPath := fmt.Sprintf("/cloud/project/%s/snapshot", testServiceName)
+
+	publicCalled := false
+	snapshotCalled := false
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"GET " + imagePath: func(w http.ResponseWriter, r *http.Request) {
+			publicCalled = true
+			jsonResponse(w, http.StatusOK, []Image{
+				{ID: "pub-1", Name: "Ubuntu 22.04", Region: testRegion},
+			})
+		},
+		"GET " + snapshotPath: func(w http.ResponseWriter, r *http.Request) {
+			snapshotCalled = true
+			jsonResponse(w, http.StatusOK, []Image{
+				{ID: "byoi-1", Name: "openSUSE-Leap-15.6", Region: testRegion, Visibility: "private"},
+				{ID: "byoi-2", Name: "MyCompany-RHEL-9", Region: testRegion, Visibility: "private"},
+			})
+		},
+	})
+
+	image, err := client.GetImageByName("openSUSE-Leap-15.6")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if image.ID != "byoi-1" {
+		t.Errorf("expected BYOI image ID byoi-1, got %s", image.ID)
+	}
+
+	if !publicCalled {
+		t.Error("expected public images endpoint to be called first")
+	}
+
+	if !snapshotCalled {
+		t.Error("expected snapshot endpoint to be called as fallback")
+	}
+}
+
+func TestGetImageByName_PublicPreferred(t *testing.T) {
+	// When image exists in public, snapshot endpoint is NOT called (perf).
+	imagePath := fmt.Sprintf("/cloud/project/%s/image", testServiceName)
+	snapshotPath := fmt.Sprintf("/cloud/project/%s/snapshot", testServiceName)
+
+	snapshotCalled := false
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"GET " + imagePath: func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(w, http.StatusOK, []Image{
+				{ID: "pub-1", Name: "Ubuntu 22.04", Region: testRegion},
+			})
+		},
+		"GET " + snapshotPath: func(w http.ResponseWriter, r *http.Request) {
+			snapshotCalled = true
+			jsonResponse(w, http.StatusOK, []Image{})
+		},
+	})
+
+	image, err := client.GetImageByName("Ubuntu 22.04")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if image.ID != "pub-1" {
+		t.Errorf("expected pub-1, got %s", image.ID)
+	}
+
+	if snapshotCalled {
+		t.Error("snapshot endpoint should NOT be called when public match found (perf regression)")
+	}
+}
+
+func TestGetImageByName_NotFoundAnywhere(t *testing.T) {
+	imagePath := fmt.Sprintf("/cloud/project/%s/image", testServiceName)
+	snapshotPath := fmt.Sprintf("/cloud/project/%s/snapshot", testServiceName)
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"GET " + imagePath: func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(w, http.StatusOK, []Image{})
+		},
+		"GET " + snapshotPath: func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(w, http.StatusOK, []Image{})
+		},
+	})
+
+	_, err := client.GetImageByName("nonexistent")
+	if err == nil {
+		t.Fatal("expected error when image is in neither endpoint")
+	}
+
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' error, got: %v", err)
+	}
+}
+
+func TestIsUUID(t *testing.T) {
+	tests := []struct {
+		in   string
+		want bool
+	}{
+		{"865193d1-cd97-445c-ade9-ac9981fd1cbe", true},
+		{"00000000-0000-0000-0000-000000000000", true},
+		{"865193D1-CD97-445C-ADE9-AC9981FD1CBE", true}, // uppercase
+		{"Ubuntu 22.04", false},
+		{"openSUSE-Leap-15.6", false},
+		{"865193d1-cd97-445c-ade9-ac9981fd1cb", false},   // too short
+		{"865193d1-cd97-445c-ade9-ac9981fd1cbex", false}, // too long
+		{"865193d1cd97445cade9ac9981fd1cbe", false},      // no dashes
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			if got := isUUID(tt.in); got != tt.want {
+				t.Errorf("isUUID(%q) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCreateLoadBalancer(t *testing.T) {
 	expectedPath := fmt.Sprintf("/cloud/project/%s/region/%s/loadbalancing/loadbalancer",
 		testServiceName, testRegion)

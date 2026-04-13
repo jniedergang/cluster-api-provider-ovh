@@ -37,6 +37,18 @@ Management Cluster (CAPI)
 | `OVHMachineTemplate` | Template pour MachineDeployment / ControlPlane |
 | `OVHClusterTemplate` | Template pour ClusterClass |
 
+## Images supportees
+
+`OVHMachine.spec.imageName` accepte trois formats, resolus automatiquement :
+
+| Format | Exemple | Source |
+|--------|---------|--------|
+| Image publique OVH | `Ubuntu 22.04`, `Debian 12`, `Rocky Linux 9` | `/cloud/project/{sn}/image` (catalogue OVH) |
+| Image custom (BYOI) | `openSUSE-Leap-15.6`, `MyCorp-SLES-15` | `/cloud/project/{sn}/snapshot` (uploadee via Glance) |
+| UUID direct | `865193d1-cd97-445c-ade9-ac9981fd1cbe` | utilise tel quel, sans lookup |
+
+Pour uploader une image custom (BYOI), voir [docs/byoi-guide.md](docs/byoi-guide.md).
+
 ## Pre-requis
 
 - Cluster de management avec CAPI installe

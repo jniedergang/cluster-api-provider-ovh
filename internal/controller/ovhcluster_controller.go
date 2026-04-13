@@ -588,18 +588,82 @@ func (r *OVHClusterReconciler) handleExistingLB(scope *ClusterScope, lb *ovhclie
 		return ctrl.Result{}, err
 	}
 
-	// Set control plane endpoint from VIP
-	if lb.VIPAddress != "" && scope.OVHCluster.Spec.ControlPlaneEndpoint.Host == "" {
+	// If a floating IP network is configured, allocate and attach a floating IP
+	// to the LB; the public IP becomes the control plane endpoint.
+	endpointHost := lb.VIPAddress
+
+	if scope.OVHCluster.Spec.LoadBalancerConfig.FloatingNetworkID != "" {
+		fipIP, err := r.reconcileFloatingIP(scope, lb)
+		if err != nil {
+			return ctrl.Result{RequeueAfter: requeueTimeShort}, err
+		}
+
+		if fipIP != "" {
+			endpointHost = fipIP
+		}
+	}
+
+	// Set control plane endpoint
+	if endpointHost != "" && scope.OVHCluster.Spec.ControlPlaneEndpoint.Host == "" {
 		scope.OVHCluster.Spec.ControlPlaneEndpoint = clusterv1.APIEndpoint{
-			Host: lb.VIPAddress,
+			Host: endpointHost,
 			Port: apiServerLBPort,
 		}
-		logger.Info("Control plane endpoint set", "host", lb.VIPAddress, "port", apiServerLBPort)
+		logger.Info("Control plane endpoint set", "host", endpointHost, "port", apiServerLBPort)
 	}
 
 	conditions.MarkTrue(scope.OVHCluster, infrav1.LoadBalancerReadyCondition)
 
 	return ctrl.Result{}, nil
+}
+
+// reconcileFloatingIP allocates a floating IP from the configured external
+// network and attaches it to the LB. The IP is recorded in
+// status.FloatingIPID so it can be cleaned up on cluster deletion.
+// Returns the public IP address (or "" if not yet ready).
+func (r *OVHClusterReconciler) reconcileFloatingIP(scope *ClusterScope, lb *ovhclient.LoadBalancer) (string, error) {
+	logger := scope.Logger
+
+	// LB already has a floating IP (re-read from API in case it was attached out-of-band)
+	if lb.FloatingIP != nil && lb.FloatingIP.IP != "" {
+		scope.OVHCluster.Status.FloatingIPID = lb.FloatingIP.ID
+
+		return lb.FloatingIP.IP, nil
+	}
+
+	// Allocate a new floating IP if we don't have one yet
+	if scope.OVHCluster.Status.FloatingIPID == "" {
+		logger.Info("Creating floating IP", "network", scope.OVHCluster.Spec.LoadBalancerConfig.FloatingNetworkID)
+
+		fip, err := scope.OVHClient.CreateFloatingIP(ovhclient.CreateFloatingIPOpts{
+			Description: "CAPI control plane endpoint for " + scope.Cluster.Name,
+		})
+		if err != nil {
+			return "", fmt.Errorf("creating floating IP: %w", err)
+		}
+
+		scope.OVHCluster.Status.FloatingIPID = fip.ID
+		logger.Info("Floating IP allocated", "fipID", fip.ID, "ip", fip.IP)
+
+		// Attach to LB
+		if err := scope.OVHClient.AssociateFloatingIPToLB(lb.ID, fip.ID); err != nil {
+			return "", fmt.Errorf("associating floating IP to LB: %w", err)
+		}
+
+		logger.Info("Floating IP attached to LB", "fipID", fip.ID, "lbID", lb.ID)
+
+		return fip.IP, nil
+	}
+
+	// We have a FloatingIPID stored but the LB doesn't show it; re-attach
+	logger.Info("Re-attaching known floating IP to LB", "fipID", scope.OVHCluster.Status.FloatingIPID)
+
+	if err := scope.OVHClient.AssociateFloatingIPToLB(lb.ID, scope.OVHCluster.Status.FloatingIPID); err != nil {
+		return "", fmt.Errorf("re-associating floating IP to LB: %w", err)
+	}
+
+	// IP not yet known until next reconcile re-fetches the LB
+	return "", nil
 }
 
 // reconcileLBListener ensures the API server listener exists on the LB.
@@ -688,6 +752,24 @@ func (r *OVHClusterReconciler) ReconcileDelete(scope *ClusterScope) (reconcile.R
 		err := scope.OVHClient.DeleteLoadBalancer(scope.OVHCluster.Status.LoadBalancerID)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("deleting LB: %w", err)
+		}
+	}
+
+	// Cleanup orphan LBs that share our cluster's name prefix. Defends against
+	// duplicate LBs created by previous reconciles (e.g. before idempotency or
+	// if the controller was killed between POST and status persist).
+	lbPrefix := locutil.GenerateRFC1035Name("capi", scope.Cluster.Name, "lb")
+
+	orphans, err := scope.OVHClient.ListLoadBalancersByPrefix(lbPrefix)
+	if err != nil {
+		logger.Error(err, "failed to list orphan LBs (continuing cleanup)")
+	} else {
+		for _, orphan := range orphans {
+			logger.Info("Deleting orphan LB", "lbID", orphan.ID, "name", orphan.Name)
+
+			if err := scope.OVHClient.DeleteLoadBalancer(orphan.ID); err != nil {
+				logger.Error(err, "failed to delete orphan LB", "lbID", orphan.ID)
+			}
 		}
 	}
 

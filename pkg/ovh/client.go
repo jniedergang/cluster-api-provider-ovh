@@ -661,6 +661,48 @@ func (c *Client) findLoadBalancerByName(name string) (*LoadBalancer, error) {
 	return nil, nil
 }
 
+// ListLoadBalancersByPrefix lists LBs whose name starts with the given prefix.
+// Used by the cluster controller's ReconcileDelete to clean up orphan LBs that
+// may have been created during a previous reconcile (e.g. before the
+// idempotency fix landed, or because the controller restarted between POST and
+// status persist).
+func (c *Client) ListLoadBalancersByPrefix(prefix string) ([]LoadBalancer, error) {
+	var lbs []LoadBalancer
+
+	err := c.retryWithBackoff("ListLoadBalancers", func() error {
+		return c.api.Get(c.regionPath("/loadbalancing/loadbalancer"), &lbs)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	matched := make([]LoadBalancer, 0, len(lbs))
+
+	for i := range lbs {
+		if strings.HasPrefix(lbs[i].Name, prefix) {
+			matched = append(matched, lbs[i])
+		}
+	}
+
+	return matched, nil
+}
+
+// AssociateFloatingIPToLB attaches an existing floating IP to a load balancer.
+// OVH endpoint: POST /cloud/project/{sn}/region/{r}/loadbalancing/loadbalancer/{lbId}/floatingIp
+// with body { "floatingIpId": "..." }.
+func (c *Client) AssociateFloatingIPToLB(lbID, floatingIPID string) error {
+	body := map[string]string{"floatingIpId": floatingIPID}
+
+	err := c.retryWithBackoff("AssociateFloatingIPToLB", func() error {
+		return c.api.Post(c.regionPath("/loadbalancing/loadbalancer/%s/floatingIp", lbID), body, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("associating floating IP %s to LB %s: %w", floatingIPID, lbID, err)
+	}
+
+	return nil
+}
+
 // GetLoadBalancer retrieves a load balancer by ID.
 func (c *Client) GetLoadBalancer(lbID string) (*LoadBalancer, error) {
 	var lb LoadBalancer

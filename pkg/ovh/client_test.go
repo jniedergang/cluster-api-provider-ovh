@@ -801,6 +801,71 @@ func TestDeleteSSHKey_NotFound(t *testing.T) {
 	}
 }
 
+func TestListLoadBalancersByPrefix(t *testing.T) {
+	expectedPath := fmt.Sprintf("/cloud/project/%s/region/%s/loadbalancing/loadbalancer",
+		testServiceName, testRegion)
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"GET " + expectedPath: func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(w, http.StatusOK, []LoadBalancer{
+				{ID: "lb-1", Name: "capi-mycluster-lb"},
+				{ID: "lb-2", Name: "capi-mycluster-lb"}, // duplicate (orphan)
+				{ID: "lb-3", Name: "other-lb"},
+				{ID: "lb-4", Name: "capi-anothercluster-lb"},
+			})
+		},
+	})
+
+	matched, err := client.ListLoadBalancersByPrefix("capi-mycluster-")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(matched) != 2 {
+		t.Errorf("expected 2 matches for capi-mycluster- prefix, got %d", len(matched))
+	}
+
+	for _, lb := range matched {
+		if !strings.HasPrefix(lb.Name, "capi-mycluster-") {
+			t.Errorf("got unexpected LB name: %s", lb.Name)
+		}
+	}
+}
+
+func TestAssociateFloatingIPToLB(t *testing.T) {
+	lbID := "lb-1"
+	expectedPath := fmt.Sprintf("/cloud/project/%s/region/%s/loadbalancing/loadbalancer/%s/floatingIp",
+		testServiceName, testRegion, lbID)
+
+	called := false
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"POST " + expectedPath: func(w http.ResponseWriter, r *http.Request) {
+			called = true
+
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode body: %v", err)
+			}
+
+			if body["floatingIpId"] != "fip-abc" {
+				t.Errorf("expected floatingIpId fip-abc, got %s", body["floatingIpId"])
+			}
+
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+
+	err := client.AssociateFloatingIPToLB(lbID, "fip-abc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !called {
+		t.Error("expected POST to be called")
+	}
+}
+
 func TestProjectPath(t *testing.T) {
 	client := &Client{
 		serviceName: "proj-abc",

@@ -97,6 +97,16 @@ precondition_checks() {
 }
 
 setup_namespace() {
+  # Wait for any previous Terminating namespace to disappear, so back-to-back
+  # suites don't race on the same namespace name.
+  for _ in $(seq 1 60); do
+    phase=$(kubectl get ns "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    if [ -z "$phase" ] || [ "$phase" = "Active" ]; then
+      break
+    fi
+    sleep 1
+  done
+
   kubectl get ns "$NAMESPACE" >/dev/null 2>&1 || kubectl create ns "$NAMESPACE"
 
   kubectl -n "$NAMESPACE" create secret generic ovh-credentials \
@@ -337,9 +347,15 @@ EOF
     fail_test "Not idempotent: ${count} LB(s) with prefix ${prefix} (first=$first_lb, second=$second_lb)"
   fi
 
-  # Cleanup
+  # Cleanup: delete the Cluster + OVHCluster BEFORE the namespace teardown.
+  # The OVHCluster finalizer needs the ovh-credentials Secret to talk to OVH
+  # for LB/network cleanup; if the namespace starts terminating first, the
+  # Secret disappears and the finalizer loops forever.
   kubectl -n "$NAMESPACE" delete cluster "$CLUSTER_NAME" --wait=false >/dev/null 2>&1 || true
-  kubectl -n "$NAMESPACE" delete ovhcluster "$CLUSTER_NAME" --wait=false >/dev/null 2>&1 || true
+  log_info "Waiting for OVHCluster CR finalizer to clear ..."
+  wait_for_condition "OVHCluster CR removed" "${TIMEOUT_DELETE}" \
+    "! kubectl -n ${NAMESPACE} get ovhcluster ${CLUSTER_NAME} >/dev/null 2>&1" \
+    || log_info "Warning: OVHCluster CR still present after ${TIMEOUT_DELETE}s, OVH resources may leak"
 }
 
 # ---- Main ----

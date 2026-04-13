@@ -87,6 +87,12 @@ type OVHLoadBalancerConfig struct {
 	// SubnetID is the private subnet to attach the load balancer to.
 	SubnetID string `json:"subnetID"`
 
+	// FlavorName is the OVH Octavia LB flavor name (small, medium, large, xl).
+	// Defaults to "small" if not specified.
+	// +optional
+	// +kubebuilder:default:=small
+	FlavorName string `json:"flavorName,omitempty"`
+
 	// FloatingNetworkID is the external network for the floating IP.
 	// If set, a floating IP is created for external access to the control plane.
 	// +optional

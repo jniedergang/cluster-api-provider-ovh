@@ -498,32 +498,244 @@ func TestIsUUID(t *testing.T) {
 	}
 }
 
-func TestCreateLoadBalancer(t *testing.T) {
-	expectedPath := fmt.Sprintf("/cloud/project/%s/region/%s/loadbalancing/loadbalancer",
+func TestGetLBFlavorByName(t *testing.T) {
+	expectedPath := fmt.Sprintf("/cloud/project/%s/region/%s/loadbalancing/flavor",
 		testServiceName, testRegion)
 
 	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"GET " + expectedPath: func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(w, http.StatusOK, []LBFlavor{
+				{ID: "fl-1", Name: "small", Region: testRegion},
+				{ID: "fl-2", Name: "medium", Region: testRegion},
+				{ID: "fl-3", Name: "large", Region: testRegion},
+				{ID: "fl-4", Name: "xl", Region: testRegion},
+			})
+		},
+	})
+
+	flavor, err := client.GetLBFlavorByName("medium")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if flavor.ID != "fl-2" {
+		t.Errorf("expected fl-2, got %s", flavor.ID)
+	}
+}
+
+func TestGetLBFlavorByName_NotFound(t *testing.T) {
+	expectedPath := fmt.Sprintf("/cloud/project/%s/region/%s/loadbalancing/flavor",
+		testServiceName, testRegion)
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"GET " + expectedPath: func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(w, http.StatusOK, []LBFlavor{
+				{ID: "fl-1", Name: "small"},
+			})
+		},
+	})
+
+	_, err := client.GetLBFlavorByName("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for unknown flavor")
+	}
+}
+
+func TestCreateLoadBalancer(t *testing.T) {
+	// OVH POST returns an async task descriptor (just an id), then the client
+	// must list LBs by name to find the actual LB. The test must mock both calls.
+	expectedPath := fmt.Sprintf("/cloud/project/%s/region/%s/loadbalancing/loadbalancer",
+		testServiceName, testRegion)
+
+	postCalled := false
+	listCalled := false
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
 		"POST " + expectedPath: func(w http.ResponseWriter, r *http.Request) {
-			jsonResponse(w, http.StatusOK, LoadBalancer{
-				ID:                 "lb-123",
-				Name:               "capi-lb",
-				ProvisioningStatus: "ACTIVE",
-				OperatingStatus:    "ONLINE",
-				VIPAddress:         "10.0.0.100",
+			postCalled = true
+
+			// OVH returns a task id, not the LB id
+			jsonResponse(w, http.StatusOK, map[string]interface{}{
+				"id":     "task-xyz-123",
+				"status": "in-progress",
+			})
+		},
+		"GET " + expectedPath: func(w http.ResponseWriter, r *http.Request) {
+			listCalled = true
+
+			jsonResponse(w, http.StatusOK, []LoadBalancer{
+				{
+					ID:                 "lb-real-456",
+					Name:               "capi-lb",
+					ProvisioningStatus: LBProvisioningStatusActive,
+					OperatingStatus:    LBOperatingStatusOnline,
+					VIPAddress:         "10.0.0.100",
+				},
 			})
 		},
 	})
 
 	lb, err := client.CreateLoadBalancer(CreateLoadBalancerOpts{
-		Name:        "capi-lb",
-		VIPSubnetID: "subnet-1",
+		Name:     "capi-lb",
+		FlavorID: "fl-small",
+		Network: LBNetworkConfig{
+			Private: LBPrivateNetwork{
+				Network: LBNetworkRef{
+					ID:       "openstack-uuid",
+					SubnetID: "subnet-1",
+				},
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	if !postCalled {
+		t.Error("expected POST to be called")
+	}
+
+	if !listCalled {
+		t.Error("expected list LBs to be called after POST (to find real LB id)")
+	}
+
+	if lb.ID != "lb-real-456" {
+		t.Errorf("expected LB id from list, got %s", lb.ID)
+	}
+
 	if lb.VIPAddress != "10.0.0.100" {
 		t.Errorf("expected VIP 10.0.0.100, got %s", lb.VIPAddress)
+	}
+}
+
+func TestAddPoolMembers_Batch(t *testing.T) {
+	poolID := "pool-1"
+	expectedPath := fmt.Sprintf("/cloud/project/%s/region/%s/loadbalancing/pool/%s/member",
+		testServiceName, testRegion, poolID)
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"POST " + expectedPath: func(w http.ResponseWriter, r *http.Request) {
+			var req addPoolMembersRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode error: %v", err)
+			}
+
+			if len(req.Members) != 2 {
+				t.Errorf("expected 2 members in batch, got %d", len(req.Members))
+			}
+
+			jsonResponse(w, http.StatusOK, []Member{
+				{ID: "m-1", Address: req.Members[0].Address, ProtocolPort: req.Members[0].ProtocolPort},
+				{ID: "m-2", Address: req.Members[1].Address, ProtocolPort: req.Members[1].ProtocolPort},
+			})
+		},
+	})
+
+	members, err := client.AddPoolMembers(poolID, []CreateMemberOpts{
+		{Address: "10.0.0.10", ProtocolPort: 6443},
+		{Address: "10.0.0.11", ProtocolPort: 6443},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(members))
+	}
+
+	if members[0].ID != "m-1" || members[1].ID != "m-2" {
+		t.Errorf("unexpected member IDs: %v", members)
+	}
+}
+
+func TestAddPoolMember_Single(t *testing.T) {
+	poolID := "pool-1"
+	expectedPath := fmt.Sprintf("/cloud/project/%s/region/%s/loadbalancing/pool/%s/member",
+		testServiceName, testRegion, poolID)
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"POST " + expectedPath: func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(w, http.StatusOK, []Member{
+				{ID: "m-1", Address: "10.0.0.10", ProtocolPort: 6443},
+			})
+		},
+	})
+
+	m, err := client.AddPoolMember(poolID, CreateMemberOpts{
+		Address:      "10.0.0.10",
+		ProtocolPort: 6443,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if m.ID != "m-1" {
+		t.Errorf("expected m-1, got %s", m.ID)
+	}
+}
+
+func TestCreateSSHKey(t *testing.T) {
+	expectedPath := fmt.Sprintf("/cloud/project/%s/sshkey", testServiceName)
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"POST " + expectedPath: func(w http.ResponseWriter, r *http.Request) {
+			var opts CreateSSHKeyOpts
+			json.NewDecoder(r.Body).Decode(&opts) //nolint:errcheck
+
+			if opts.Name != "test-key" {
+				t.Errorf("expected name test-key, got %s", opts.Name)
+			}
+
+			jsonResponse(w, http.StatusOK, SSHKey{
+				ID:        "key-abc-123",
+				Name:      opts.Name,
+				PublicKey: opts.PublicKey,
+			})
+		},
+	})
+
+	key, err := client.CreateSSHKey(CreateSSHKeyOpts{
+		Name:      "test-key",
+		PublicKey: "ssh-ed25519 AAAA...",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if key.ID != "key-abc-123" {
+		t.Errorf("expected ID key-abc-123, got %s", key.ID)
+	}
+}
+
+func TestDeleteSSHKey(t *testing.T) {
+	keyID := "key-abc-123"
+	expectedPath := fmt.Sprintf("/cloud/project/%s/sshkey/%s", testServiceName, keyID)
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"DELETE " + expectedPath: func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+
+	err := client.DeleteSSHKey(keyID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDeleteSSHKey_NotFound(t *testing.T) {
+	keyID := "key-gone"
+	expectedPath := fmt.Sprintf("/cloud/project/%s/sshkey/%s", testServiceName, keyID)
+
+	_, client := newTestServer(t, map[string]http.HandlerFunc{
+		"DELETE " + expectedPath: func(w http.ResponseWriter, r *http.Request) {
+			jsonResponse(w, http.StatusNotFound, map[string]string{"message": "not found"})
+		},
+	})
+
+	err := client.DeleteSSHKey(keyID)
+	if err != nil {
+		t.Fatalf("expected nil error for 404, got: %v", err)
 	}
 }
 

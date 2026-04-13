@@ -88,6 +88,12 @@ spec:
                 description: LoadBalancerConfig describes how the OVH managed load
                   balancer should be configured.
                 properties:
+                  flavorName:
+                    default: small
+                    description: |-
+                      FlavorName is the OVH Octavia LB flavor name (small, medium, large, xl).
+                      Defaults to "small" if not specified.
+                    type: string
                   floatingNetworkID:
                     description: |-
                       FloatingNetworkID is the external network for the floating IP.

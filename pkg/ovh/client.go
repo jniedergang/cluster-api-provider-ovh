@@ -420,6 +420,43 @@ func (c *Client) GetSSHKeyByName(name string) (*SSHKey, error) {
 	return nil, fmt.Errorf("SSH key %q not found", name)
 }
 
+// CreateSSHKeyOpts are the parameters for registering a new SSH public key.
+type CreateSSHKeyOpts struct {
+	Name      string `json:"name"`
+	PublicKey string `json:"publicKey"`
+	Region    string `json:"region,omitempty"`
+}
+
+// CreateSSHKey registers a new SSH public key in the project.
+func (c *Client) CreateSSHKey(opts CreateSSHKeyOpts) (*SSHKey, error) {
+	var key SSHKey
+
+	err := c.retryWithBackoff("CreateSSHKey", func() error {
+		return c.api.Post(c.projectPath("/sshkey"), opts, &key)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating SSH key %q: %w", opts.Name, err)
+	}
+
+	return &key, nil
+}
+
+// DeleteSSHKey removes an SSH key by ID.
+func (c *Client) DeleteSSHKey(keyID string) error {
+	err := c.retryWithBackoff("DeleteSSHKey", func() error {
+		return c.api.Delete(c.projectPath("/sshkey/%s", keyID), nil)
+	})
+	if err != nil {
+		if IsNotFound(err) {
+			return nil
+		}
+
+		return fmt.Errorf("deleting SSH key %s: %w", keyID, err)
+	}
+
+	return nil
+}
+
 // --- Network Operations ---
 
 // ListPrivateNetworks lists all private networks in the project.
@@ -510,18 +547,84 @@ func (c *Client) CreateSubnet(networkID string, opts CreateSubnetOpts) (*Subnet,
 
 // --- Load Balancer Operations ---
 
+// ListLBFlavors lists available Octavia load balancer flavors in the region.
+// Typical names: "small", "medium", "large", "xl".
+func (c *Client) ListLBFlavors() ([]LBFlavor, error) {
+	var flavors []LBFlavor
+
+	err := c.retryWithBackoff("ListLBFlavors", func() error {
+		return c.api.Get(c.regionPath("/loadbalancing/flavor"), &flavors)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing LB flavors: %w", err)
+	}
+
+	return flavors, nil
+}
+
+// GetLBFlavorByName resolves an LB flavor by name (small, medium, large, xl).
+func (c *Client) GetLBFlavorByName(name string) (*LBFlavor, error) {
+	flavors, err := c.ListLBFlavors()
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range flavors {
+		if strings.EqualFold(flavors[i].Name, name) {
+			return &flavors[i], nil
+		}
+	}
+
+	return nil, fmt.Errorf("LB flavor %q not found in region %s", name, c.region)
+}
+
 // CreateLoadBalancer creates a new managed load balancer (Octavia).
+//
+// Note: the OVH POST returns an asynchronous task descriptor, not the actual
+// load balancer object. The "id" field in the response is a TASK id, not the
+// LB id. After POST we list LBs by name to find the real LB. The caller can
+// then poll GetLoadBalancer until ProvisioningStatus == "ACTIVE".
 func (c *Client) CreateLoadBalancer(opts CreateLoadBalancerOpts) (*LoadBalancer, error) {
-	var lb LoadBalancer
+	var taskResp map[string]interface{}
 
 	err := c.retryWithBackoff("CreateLoadBalancer", func() error {
-		return c.api.Post(c.regionPath("/loadbalancing/loadbalancer"), opts, &lb)
+		return c.api.Post(c.regionPath("/loadbalancing/loadbalancer"), opts, &taskResp)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating load balancer %q: %w", opts.Name, err)
 	}
 
-	return &lb, nil
+	// Find the real LB by name (POST returned a task id, not the LB id)
+	lb, err := c.findLoadBalancerByName(opts.Name)
+	if err != nil {
+		return nil, fmt.Errorf("LB %q created but lookup failed: %w", opts.Name, err)
+	}
+
+	if lb == nil {
+		return nil, fmt.Errorf("LB %q was created but cannot be found by name", opts.Name)
+	}
+
+	return lb, nil
+}
+
+// findLoadBalancerByName lists LBs in the region and returns the first matching name.
+func (c *Client) findLoadBalancerByName(name string) (*LoadBalancer, error) {
+	var lbs []LoadBalancer
+
+	err := c.retryWithBackoff("ListLoadBalancers", func() error {
+		return c.api.Get(c.regionPath("/loadbalancing/loadbalancer"), &lbs)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range lbs {
+		if lbs[i].Name == name {
+			return &lbs[i], nil
+		}
+	}
+
+	return nil, nil
 }
 
 // GetLoadBalancer retrieves a load balancer by ID.
@@ -620,18 +723,38 @@ func (c *Client) DeletePool(poolID string) error {
 
 // --- Member Operations ---
 
-// AddPoolMember adds a member (instance) to a backend pool.
+// AddPoolMember adds a single member (instance) to a backend pool.
+//
+// Note: the OVH API accepts batch creation under {"members":[...]} and returns
+// an array. We wrap a single member here for the common case; use
+// AddPoolMembers for batch creation.
 func (c *Client) AddPoolMember(poolID string, opts CreateMemberOpts) (*Member, error) {
-	var member Member
-
-	err := c.retryWithBackoff("AddPoolMember", func() error {
-		return c.api.Post(c.regionPath("/loadbalancing/pool/%s/member", poolID), opts, &member)
-	})
+	members, err := c.AddPoolMembers(poolID, []CreateMemberOpts{opts})
 	if err != nil {
-		return nil, fmt.Errorf("adding member to pool %s: %w", poolID, err)
+		return nil, err
 	}
 
-	return &member, nil
+	if len(members) == 0 {
+		return nil, fmt.Errorf("OVH returned no members after add to pool %s", poolID)
+	}
+
+	return &members[0], nil
+}
+
+// AddPoolMembers adds multiple members in a single API call.
+func (c *Client) AddPoolMembers(poolID string, opts []CreateMemberOpts) ([]Member, error) {
+	var members []Member
+
+	body := addPoolMembersRequest{Members: opts}
+
+	err := c.retryWithBackoff("AddPoolMembers", func() error {
+		return c.api.Post(c.regionPath("/loadbalancing/pool/%s/member", poolID), body, &members)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("adding members to pool %s: %w", poolID, err)
+	}
+
+	return members, nil
 }
 
 // RemovePoolMember removes a member from a backend pool.

@@ -111,19 +111,32 @@ type SSHKey struct {
 
 // PrivateNetwork represents a vRack private network.
 type PrivateNetwork struct {
-	ID      string           `json:"id"`
-	Name    string           `json:"name"`
-	VlanID  int              `json:"vlanId"`
-	Regions []NetworkRegion  `json:"regions,omitempty"`
-	Status  string           `json:"status"`
-	Type    string           `json:"type"`
+	ID      string          `json:"id"`
+	Name    string          `json:"name"`
+	VlanID  int             `json:"vlanId"`
+	Regions []NetworkRegion `json:"regions,omitempty"`
+	Status  string          `json:"status"`
+	Type    string          `json:"type"`
 }
 
-// NetworkRegion describes the status of a network in a specific region.
+// NetworkRegion describes the status of a network in a specific region,
+// including the OpenStack-internal UUID used by region-scoped APIs (LB, etc.).
 type NetworkRegion struct {
-	Region       string `json:"region"`
-	Status       string `json:"status"`
-	OpenStackID  string `json:"openstackId,omitempty"`
+	Region      string `json:"region"`
+	Status      string `json:"status"`
+	OpenStackID string `json:"openstackId,omitempty"`
+}
+
+// OpenStackIDForRegion returns the OpenStack network UUID for the given region,
+// or empty if not found. Required for region-scoped APIs (Octavia LB, etc.)
+// which use OpenStack UUIDs rather than OVH "pn-NNNNNN_N" IDs.
+func (n *PrivateNetwork) OpenStackIDForRegion(region string) string {
+	for _, r := range n.Regions {
+		if r.Region == region {
+			return r.OpenStackID
+		}
+	}
+	return ""
 }
 
 // CreateNetworkOpts are the parameters for creating a private network.
@@ -163,6 +176,13 @@ type CreateSubnetOpts struct {
 	NoGateway bool   `json:"noGateway,omitempty"`
 }
 
+// LBFlavor represents an Octavia load balancer flavor (size).
+type LBFlavor struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Region string `json:"region,omitempty"`
+}
+
 // LoadBalancer represents an OVH managed load balancer (Octavia).
 type LoadBalancer struct {
 	ID                  string        `json:"id"`
@@ -180,13 +200,14 @@ type LoadBalancer struct {
 	Listeners           []ListenerRef `json:"listeners,omitempty"`
 }
 
-// LoadBalancer status constants.
+// LoadBalancer status constants. OVH returns these in lowercase.
 const (
-	LBProvisioningStatusActive = "ACTIVE"
-	LBProvisioningStatusError  = "ERROR"
-	LBOperatingStatusOnline    = "ONLINE"
-	LBOperatingStatusOffline   = "OFFLINE"
-	LBOperatingStatusError     = "ERROR"
+	LBProvisioningStatusActive   = "active"
+	LBProvisioningStatusCreating = "creating"
+	LBProvisioningStatusError    = "error"
+	LBOperatingStatusOnline      = "online"
+	LBOperatingStatusOffline     = "offline"
+	LBOperatingStatusError       = "error"
 )
 
 // FloatingIPRef is a reference to a floating IP on a load balancer.
@@ -201,12 +222,30 @@ type ListenerRef struct {
 }
 
 // CreateLoadBalancerOpts are the parameters for creating a load balancer.
+// Note: the OVH API rejects extra fields like "description" — only documented
+// fields below are accepted.
 type CreateLoadBalancerOpts struct {
-	Name         string `json:"name"`
-	Description  string `json:"description,omitempty"`
-	FlavorID     string `json:"flavorId,omitempty"`
-	VIPNetworkID string `json:"vipNetworkId,omitempty"`
-	VIPSubnetID  string `json:"vipSubnetId,omitempty"`
+	Name     string          `json:"name"`
+	FlavorID string          `json:"flavorId"`
+	Network  LBNetworkConfig `json:"network"`
+}
+
+// LBNetworkConfig describes the network configuration of a load balancer.
+// The "private" sub-field references the vRack network and subnet for the VIP.
+type LBNetworkConfig struct {
+	Private LBPrivateNetwork `json:"private"`
+}
+
+// LBPrivateNetwork references a private vRack network for the LB VIP.
+// The OVH API nests the subnetId inside the network reference.
+type LBPrivateNetwork struct {
+	Network LBNetworkRef `json:"network"`
+}
+
+// LBNetworkRef references a network by its OpenStack UUID with a subnet hint.
+type LBNetworkRef struct {
+	ID       string `json:"id"`
+	SubnetID string `json:"subnetId,omitempty"`
 }
 
 // Listener represents a load balancer listener.
@@ -222,10 +261,11 @@ type Listener struct {
 }
 
 // CreateListenerOpts are the parameters for creating a listener.
+// OVH-specific: uses "port" (not "protocolPort") and "loadbalancerId" lowercase b.
 type CreateListenerOpts struct {
 	Name           string `json:"name"`
 	Protocol       string `json:"protocol"`
-	ProtocolPort   int32  `json:"protocolPort"`
+	Port           int32  `json:"port"`
 	LoadBalancerID string `json:"loadbalancerId"`
 	DefaultPoolID  string `json:"defaultPoolId,omitempty"`
 }
@@ -243,10 +283,11 @@ type Pool struct {
 }
 
 // CreatePoolOpts are the parameters for creating a backend pool.
+// OVH-specific: uses "algorithm" (not "lbAlgorithm") and "loadbalancerId" lowercase b.
 type CreatePoolOpts struct {
 	Name           string `json:"name"`
 	Protocol       string `json:"protocol"`
-	LBAlgorithm    string `json:"lbAlgorithm"` // ROUND_ROBIN, LEAST_CONNECTIONS, SOURCE_IP
+	Algorithm      string `json:"algorithm"` // roundRobin, leastConnections, sourceIp
 	ListenerID     string `json:"listenerId,omitempty"`
 	LoadBalancerID string `json:"loadbalancerId,omitempty"`
 }
@@ -270,6 +311,11 @@ type CreateMemberOpts struct {
 	ProtocolPort int32  `json:"protocolPort"`
 	SubnetID     string `json:"subnetId,omitempty"`
 	Weight       int    `json:"weight,omitempty"`
+}
+
+// addPoolMembersRequest wraps a list of members for the OVH batch-add endpoint.
+type addPoolMembersRequest struct {
+	Members []CreateMemberOpts `json:"members"`
 }
 
 // FloatingIP represents a floating IP resource.

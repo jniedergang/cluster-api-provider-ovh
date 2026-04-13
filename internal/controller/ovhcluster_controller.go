@@ -54,8 +54,8 @@ const (
 	apiServerListenerName = "api-server"
 	apiServerLBPort       = 6443
 	apiServerBackendPort  = 6443
-	apiServerProtocol     = "TCP"
-	lbAlgorithm           = "ROUND_ROBIN"
+	apiServerProtocol     = "tcp"
+	lbAlgorithm           = "roundRobin"
 )
 
 // ClusterScope stores context data for the OVHCluster reconciler.
@@ -427,19 +427,58 @@ func (r *OVHClusterReconciler) reconcileLoadBalancer(scope *ClusterScope) (recon
 		}
 	}
 
-	// Create new LB
-	lbName := locutil.GenerateRFC1035Name("capi", scope.Cluster.Name, "lb")
-	logger.Info("Creating load balancer", "name", lbName)
-
-	opts := ovhclient.CreateLoadBalancerOpts{
-		Name:        lbName,
-		Description: fmt.Sprintf("CAPI control plane LB for %s", scope.Cluster.Name),
+	// Create new LB. Resolve LB flavor (defaults to "small").
+	lbFlavorName := scope.OVHCluster.Spec.LoadBalancerConfig.FlavorName
+	if lbFlavorName == "" {
+		lbFlavorName = "small"
 	}
 
-	if scope.OVHCluster.Spec.LoadBalancerConfig.SubnetID != "" {
-		opts.VIPSubnetID = scope.OVHCluster.Spec.LoadBalancerConfig.SubnetID
-	} else if scope.OVHCluster.Status.SubnetID != "" {
-		opts.VIPSubnetID = scope.OVHCluster.Status.SubnetID
+	lbFlavor, err := scope.OVHClient.GetLBFlavorByName(lbFlavorName)
+	if err != nil {
+		conditions.MarkFalse(scope.OVHCluster, infrav1.LoadBalancerReadyCondition,
+			infrav1.LoadBalancerCreationFailedReason, clusterv1.ConditionSeverityError,
+			"LB flavor %q not found: %s", lbFlavorName, err.Error())
+
+		return ctrl.Result{}, fmt.Errorf("resolving LB flavor %q: %w", lbFlavorName, err)
+	}
+
+	lbName := locutil.GenerateRFC1035Name("capi", scope.Cluster.Name, "lb")
+	logger.Info("Creating load balancer", "name", lbName, "flavor", lbFlavorName, "flavorID", lbFlavor.ID)
+
+	subnetID := scope.OVHCluster.Spec.LoadBalancerConfig.SubnetID
+	if subnetID == "" {
+		subnetID = scope.OVHCluster.Status.SubnetID
+	}
+
+	if subnetID == "" || scope.OVHCluster.Status.NetworkID == "" {
+		return ctrl.Result{RequeueAfter: requeueTimeShort},
+			fmt.Errorf("LB requires both networkID and subnetID, got network=%q subnet=%q",
+				scope.OVHCluster.Status.NetworkID, subnetID)
+	}
+
+	// The Octavia LB API requires the OpenStack network UUID, not the OVH ID.
+	net, err := scope.OVHClient.GetPrivateNetwork(scope.OVHCluster.Status.NetworkID)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("resolving network for LB: %w", err)
+	}
+
+	osNetID := net.OpenStackIDForRegion(scope.OVHCluster.Spec.Region)
+	if osNetID == "" {
+		return ctrl.Result{}, fmt.Errorf("no OpenStack ID for network %s in region %s",
+			scope.OVHCluster.Status.NetworkID, scope.OVHCluster.Spec.Region)
+	}
+
+	opts := ovhclient.CreateLoadBalancerOpts{
+		Name:     lbName,
+		FlavorID: lbFlavor.ID,
+		Network: ovhclient.LBNetworkConfig{
+			Private: ovhclient.LBPrivateNetwork{
+				Network: ovhclient.LBNetworkRef{
+					ID:       osNetID,
+					SubnetID: subnetID,
+				},
+			},
+		},
 	}
 
 	lb, err := scope.OVHClient.CreateLoadBalancer(opts)
@@ -505,7 +544,7 @@ func (r *OVHClusterReconciler) reconcileLBListener(scope *ClusterScope) error {
 	listener, err := scope.OVHClient.CreateListener(ovhclient.CreateListenerOpts{
 		Name:           apiServerListenerName,
 		Protocol:       apiServerProtocol,
-		ProtocolPort:   apiServerLBPort,
+		Port:           apiServerLBPort,
 		LoadBalancerID: scope.OVHCluster.Status.LoadBalancerID,
 	})
 	if err != nil {
@@ -528,10 +567,11 @@ func (r *OVHClusterReconciler) reconcileLBPool(scope *ClusterScope) error {
 	logger.Info("Creating backend pool on LB")
 
 	pool, err := scope.OVHClient.CreatePool(ovhclient.CreatePoolOpts{
-		Name:        apiServerListenerName + "-pool",
-		Protocol:    apiServerProtocol,
-		LBAlgorithm: lbAlgorithm,
-		ListenerID:  scope.OVHCluster.Status.ListenerID,
+		Name:           apiServerListenerName + "-pool",
+		Protocol:       apiServerProtocol,
+		Algorithm:      lbAlgorithm,
+		ListenerID:     scope.OVHCluster.Status.ListenerID,
+		LoadBalancerID: scope.OVHCluster.Status.LoadBalancerID,
 	})
 	if err != nil {
 		return fmt.Errorf("creating pool: %w", err)

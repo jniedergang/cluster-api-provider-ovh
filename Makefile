@@ -150,6 +150,23 @@ docker-build: ## Build container image with the manager.
 docker-push: ## Push container image with the manager.
 	podman push $(IMG)-$(ARCH):$(TAG)
 
+.PHONY: docker-build-all
+docker-build-all: $(addprefix docker-build-,$(ALL_ARCH)) ## Build container images for all architectures.
+
+docker-build-%:
+	$(MAKE) ARCH=$* docker-build
+
+.PHONY: docker-push-all
+docker-push-all: $(addprefix docker-push-,$(ALL_ARCH)) docker-push-manifest ## Push images for all architectures + multi-arch manifest.
+
+docker-push-%:
+	$(MAKE) ARCH=$* docker-push
+
+.PHONY: docker-push-manifest
+docker-push-manifest: ## Push a multi-arch manifest combining all per-arch images.
+	podman manifest create --amend $(IMG):$(TAG) $(addprefix $(IMG)-,$(addsuffix :$(TAG),$(ALL_ARCH)))
+	podman manifest push --rm $(IMG):$(TAG) docker://$(IMG):$(TAG)
+
 ##@ Deployment
 
 ifndef ignore-not-found
@@ -185,10 +202,28 @@ $(RELEASE_DIR):
 	mkdir -p $(RELEASE_DIR)/
 
 .PHONY: release-manifests
-release-manifests: $(RELEASE_DIR) $(KUSTOMIZE) ## Build the manifests to publish with a release
+release-manifests: $(RELEASE_DIR) $(KUSTOMIZE) ## Build the manifests to publish with a release.
 	$(KUSTOMIZE) build config/default > $(RELEASE_DIR)/infrastructure-components.yaml
 	cp metadata.yaml $(RELEASE_DIR)/metadata.yaml
 	cp templates/cluster-template-rke2.yaml $(RELEASE_DIR)/cluster-template.yaml
+	@for f in cluster-template-rke2-floatingip cluster-template-kubeadm; do \
+		if [ -f templates/$$f.yaml ]; then cp templates/$$f.yaml $(RELEASE_DIR)/; fi; \
+	done
+	@if [ -f templates/clusterclass/rke2/clusterclass-ovhcloud-rke2.yaml ]; then \
+		cp templates/clusterclass/rke2/clusterclass-ovhcloud-rke2.yaml $(RELEASE_DIR)/; \
+	fi
+
+RELEASE_TAG ?= $(shell git describe --abbrev=0 2>/dev/null)
+
+.PHONY: release
+release: clean-release ## Build a release: validate, tag, build artifacts.
+	@if [ -z "$(RELEASE_TAG)" ]; then echo "RELEASE_TAG is not set"; exit 1; fi
+	@if ! [ -z "$$(git status --porcelain)" ]; then echo "git working tree is not clean"; exit 1; fi
+	$(MAKE) verify
+	$(MAKE) test
+	$(MAKE) release-manifests
+	@echo "Release artifacts ready in $(RELEASE_DIR)/"
+	@ls -la $(RELEASE_DIR)/
 
 ##@ Build Dependencies
 

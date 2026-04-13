@@ -28,6 +28,9 @@ instances, and clean everything up on deletion.
 
 ## Quick start
 
+For the full walkthrough (~15 min from zero to Ready nodes), see
+[docs/quickstart.md](docs/quickstart.md). Condensed version below.
+
 ### Prerequisites
 
 - A Kubernetes management cluster with [Cluster API core](https://cluster-api.sigs.k8s.io/user/quick-start.html#install-clusterctl) installed
@@ -40,7 +43,7 @@ instances, and clean everything up on deletion.
 ```bash
 helm install capiovh \
   oci://ghcr.io/rancher-sandbox/charts/cluster-api-provider-ovhcloud \
-  --version 0.1.0 \
+  --version 0.1.2 \
   --namespace capiovh-system --create-namespace \
   --set webhooks.enabled=true \
   --set webhooks.certManager.enabled=true
@@ -105,6 +108,7 @@ A high-level diagram and reconciliation flow is in
 
 ## Documentation
 
+- [Quickstart](docs/quickstart.md) — full walkthrough from zero to a Ready RKE2 cluster
 - [Architecture](docs/ARCHITECTURE.md) — design overview, reconciliation flows, OVH API quirks
 - [OVH credentials guide](docs/ovh-credentials-guide.md) — how to obtain a properly scoped Consumer Key
 - [BYOI guide](docs/byoi-guide.md) — uploading custom images (openSUSE, SLES, ...) via Glance

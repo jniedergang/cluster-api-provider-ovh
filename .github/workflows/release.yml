@@ -70,7 +70,6 @@ jobs:
     needs: [build]
     permissions:
       packages: write
-    if: hashFiles('chart/cluster-api-provider-ovhcloud/Chart.yaml') != ''
     steps:
       - name: Checkout
         uses: actions/checkout@v4

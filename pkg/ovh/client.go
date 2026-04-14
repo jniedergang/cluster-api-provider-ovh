@@ -688,19 +688,51 @@ func (c *Client) ListLoadBalancersByPrefix(prefix string) ([]LoadBalancer, error
 }
 
 // AssociateFloatingIPToLB attaches an existing floating IP to a load balancer.
-// OVH endpoint: POST /cloud/project/{sn}/region/{r}/loadbalancing/loadbalancer/{lbId}/floatingIp
+// OVH endpoint: POST /cloud/project/{sn}/region/{r}/loadbalancing/loadbalancer/{lbId}/associateFloatingIp
 // with body { "floatingIpId": "..." }.
 func (c *Client) AssociateFloatingIPToLB(lbID, floatingIPID string) error {
 	body := map[string]string{"floatingIpId": floatingIPID}
 
 	err := c.retryWithBackoff("AssociateFloatingIPToLB", func() error {
-		return c.api.Post(c.regionPath("/loadbalancing/loadbalancer/%s/floatingIp", lbID), body, nil)
+		return c.api.Post(c.regionPath("/loadbalancing/loadbalancer/%s/associateFloatingIp", lbID), body, nil)
 	})
 	if err != nil {
 		return fmt.Errorf("associating floating IP %s to LB %s: %w", floatingIPID, lbID, err)
 	}
 
 	return nil
+}
+
+// CreateLoadBalancerFloatingIP allocates a new floating IP on the external
+// network and attaches it to a load balancer in a single call. This is the
+// only reliable way to get a public IP on an Octavia LB in OVH Public Cloud
+// — there is no standalone `POST /floatingip` endpoint to allocate one first.
+//
+// OVH endpoint: POST /loadbalancing/loadbalancer/{lbId}/floatingIp
+// body: { "ip": "<private LB VIP>", "gateway": { "model": "s", "name": "..." } }
+//
+// If no internet gateway exists on the LB's private network, one is created
+// with the provided model/name. If one already exists, the gateway field is
+// ignored.
+func (c *Client) CreateLoadBalancerFloatingIP(lbID, privateIP, gatewayName string) (*FloatingIP, error) {
+	body := map[string]any{
+		"ip": privateIP,
+		"gateway": map[string]string{
+			"model": "s",
+			"name":  gatewayName,
+		},
+	}
+
+	var fip FloatingIP
+
+	err := c.retryWithBackoff("CreateLoadBalancerFloatingIP", func() error {
+		return c.api.Post(c.regionPath("/loadbalancing/loadbalancer/%s/floatingIp", lbID), body, &fip)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating floating IP for LB %s: %w", lbID, err)
+	}
+
+	return &fip, nil
 }
 
 // GetLoadBalancer retrieves a load balancer by ID.
@@ -943,12 +975,26 @@ func (c *Client) DeleteVolume(volumeID string) error {
 
 // --- Floating IP Operations ---
 
+// GetFloatingIP retrieves a floating IP by ID.
+func (c *Client) GetFloatingIP(fipID string) (*FloatingIP, error) {
+	var fip FloatingIP
+
+	err := c.retryWithBackoff("GetFloatingIP", func() error {
+		return c.api.Get(c.regionPath("/floatingip/%s", fipID), &fip)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("getting floating IP %s: %w", fipID, err)
+	}
+
+	return &fip, nil
+}
+
 // CreateFloatingIP creates a floating IP in the current region.
 func (c *Client) CreateFloatingIP(opts CreateFloatingIPOpts) (*FloatingIP, error) {
 	var fip FloatingIP
 
 	err := c.retryWithBackoff("CreateFloatingIP", func() error {
-		return c.api.Post(c.regionPath("/floatingip"), opts, &fip)
+		return c.api.Post(c.regionPath("/floatingIp"), opts, &fip)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating floating IP: %w", err)
@@ -960,7 +1006,7 @@ func (c *Client) CreateFloatingIP(opts CreateFloatingIPOpts) (*FloatingIP, error
 // DeleteFloatingIP deletes a floating IP.
 func (c *Client) DeleteFloatingIP(fipID string) error {
 	err := c.retryWithBackoff("DeleteFloatingIP", func() error {
-		return c.api.Delete(c.regionPath("/floatingip/%s", fipID), nil)
+		return c.api.Delete(c.regionPath("/floatingIp/%s", fipID), nil)
 	})
 	if err != nil {
 		if IsNotFound(err) {

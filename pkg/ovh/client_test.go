@@ -834,7 +834,7 @@ func TestListLoadBalancersByPrefix(t *testing.T) {
 
 func TestAssociateFloatingIPToLB(t *testing.T) {
 	lbID := "lb-1"
-	expectedPath := fmt.Sprintf("/cloud/project/%s/region/%s/loadbalancing/loadbalancer/%s/floatingIp",
+	expectedPath := fmt.Sprintf("/cloud/project/%s/region/%s/loadbalancing/loadbalancer/%s/associateFloatingIp",
 		testServiceName, testRegion, lbID)
 
 	called := false

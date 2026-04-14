@@ -591,7 +591,9 @@ func (r *OVHClusterReconciler) handleExistingLB(scope *ClusterScope, lb *ovhclie
 	}
 
 	// If a floating IP network is configured, allocate and attach a floating IP
-	// to the LB; the public IP becomes the control plane endpoint.
+	// to the LB; the public IP becomes the control plane endpoint. Without a
+	// floating IP configured, we fall back to the private LB VIP (only usable
+	// from inside the OVH vRack).
 	endpointHost := lb.VIPAddress
 
 	if scope.OVHCluster.Spec.LoadBalancerConfig.FloatingNetworkID != "" {
@@ -600,9 +602,15 @@ func (r *OVHClusterReconciler) handleExistingLB(scope *ClusterScope, lb *ovhclie
 			return ctrl.Result{RequeueAfter: requeueTimeShort}, err
 		}
 
-		if fipIP != "" {
-			endpointHost = fipIP
+		if fipIP == "" {
+			// Floating IP not yet ready — don't set the endpoint to the private
+			// VIP, we want the public IP once available. Retry soon.
+			logger.Info("Waiting for floating IP to be allocated", "lbID", lb.ID)
+
+			return ctrl.Result{RequeueAfter: requeueTimeShort}, nil
 		}
+
+		endpointHost = fipIP
 	}
 
 	// Set control plane endpoint
@@ -619,53 +627,66 @@ func (r *OVHClusterReconciler) handleExistingLB(scope *ClusterScope, lb *ovhclie
 	return ctrl.Result{}, nil
 }
 
-// reconcileFloatingIP allocates a floating IP from the configured external
-// network and attaches it to the LB. The IP is recorded in
-// status.FloatingIPID so it can be cleaned up on cluster deletion.
-// Returns the public IP address (or "" if not yet ready).
+// reconcileFloatingIP allocates a floating IP on the external network and
+// attaches it to the LB. The IP is recorded in status.FloatingIPID so it can
+// be cleaned up on cluster deletion. Returns the public IP address (or "" if
+// not yet ready).
+//
+// OVH Public Cloud has no standalone floating IP allocation endpoint: the
+// only way to get a public IP on an Octavia LB is to POST to
+// /loadbalancer/{id}/floatingIp, which allocates and attaches in one call,
+// optionally creating an internet gateway on the private network if needed.
 func (r *OVHClusterReconciler) reconcileFloatingIP(scope *ClusterScope, lb *ovhclient.LoadBalancer) (string, error) {
 	logger := scope.Logger
 
-	// LB already has a floating IP (re-read from API in case it was attached out-of-band)
+	// LB already has a floating IP (populated by previous reconcile).
 	if lb.FloatingIP != nil && lb.FloatingIP.IP != "" {
 		scope.OVHCluster.Status.FloatingIPID = lb.FloatingIP.ID
 
 		return lb.FloatingIP.IP, nil
 	}
 
-	// Allocate a new floating IP if we don't have one yet
-	if scope.OVHCluster.Status.FloatingIPID == "" {
-		logger.Info("Creating floating IP", "network", scope.OVHCluster.Spec.LoadBalancerConfig.FloatingNetworkID)
-
-		fip, err := scope.OVHClient.CreateFloatingIP(ovhclient.CreateFloatingIPOpts{
-			Description: "CAPI control plane endpoint for " + scope.Cluster.Name,
-		})
-		if err != nil {
-			return "", fmt.Errorf("creating floating IP: %w", err)
+	// Floating IP was allocated in a previous reconcile but the LB response
+	// hasn't caught up; fetch it directly.
+	if scope.OVHCluster.Status.FloatingIPID != "" {
+		fip, gerr := scope.OVHClient.GetFloatingIP(scope.OVHCluster.Status.FloatingIPID)
+		if gerr == nil && fip != nil && fip.IP != "" {
+			return fip.IP, nil
 		}
 
-		scope.OVHCluster.Status.FloatingIPID = fip.ID
-		logger.Info("Floating IP allocated", "fipID", fip.ID, "ip", fip.IP)
+		return "", nil // keep retrying next reconcile
+	}
 
-		// Attach to LB
-		if err := scope.OVHClient.AssociateFloatingIPToLB(lb.ID, fip.ID); err != nil {
-			return "", fmt.Errorf("associating floating IP to LB: %w", err)
+	if lb.VIPAddress == "" {
+		return "", nil // LB not yet fully provisioned with a VIP; retry later
+	}
+
+	logger.Info("Allocating and attaching floating IP to LB",
+		"lbID", lb.ID, "privateIP", lb.VIPAddress)
+
+	gwName := "capi-" + scope.Cluster.Name + "-gw"
+
+	fip, err := scope.OVHClient.CreateLoadBalancerFloatingIP(lb.ID, lb.VIPAddress, gwName)
+	if err != nil {
+		return "", fmt.Errorf("allocating floating IP for LB: %w", err)
+	}
+
+	scope.OVHCluster.Status.FloatingIPID = fip.ID
+	logger.Info("Floating IP attached", "fipID", fip.ID, "ip", fip.IP, "lbID", lb.ID)
+
+	// The allocation response may not yet include the public IP address.
+	// Fetch the floating IP directly to get the actual IP, retrying on next
+	// reconcile if still empty.
+	if fip.IP == "" {
+		refreshed, gerr := scope.OVHClient.GetFloatingIP(fip.ID)
+		if gerr == nil && refreshed != nil && refreshed.IP != "" {
+			return refreshed.IP, nil
 		}
 
-		logger.Info("Floating IP attached to LB", "fipID", fip.ID, "lbID", lb.ID)
-
-		return fip.IP, nil
+		return "", nil // retry next reconcile
 	}
 
-	// We have a FloatingIPID stored but the LB doesn't show it; re-attach
-	logger.Info("Re-attaching known floating IP to LB", "fipID", scope.OVHCluster.Status.FloatingIPID)
-
-	if err := scope.OVHClient.AssociateFloatingIPToLB(lb.ID, scope.OVHCluster.Status.FloatingIPID); err != nil {
-		return "", fmt.Errorf("re-associating floating IP to LB: %w", err)
-	}
-
-	// IP not yet known until next reconcile re-fetches the LB
-	return "", nil
+	return fip.IP, nil
 }
 
 // reconcileLBListener ensures the API server listener exists on the LB.

@@ -349,10 +349,16 @@ spec:
           options edns0 trust-ad
           EOF
           chmod 0644 /etc/resolv.conf
-          systemctl restart systemd-resolved || true
-          # Block until DNS for github.com resolves (RKE2 install pulls from GH).
+          # Do NOT restart systemd-resolved: a brief restart window can race
+          # the immediately-following `curl get.rke2.io | sh`. The static
+          # /etc/resolv.conf above already short-circuits the resolver to
+          # 1.1.1.1 directly (libresolv reads it on every query). The drop-in
+          # we wrote earlier is picked up on next reboot.
+          # Block until DNS for github.com resolves via the static resolver.
+          # Python's socket.gethostbyname uses libresolv directly (NOT NSS,
+          # which could hit a stale systemd-resolved stub).
           for i in $(seq 1 30); do
-            getent hosts github.com >/dev/null 2>&1 && break
+            python3 -c "import socket; socket.gethostbyname('github.com')" 2>/dev/null && break
             sleep 2
           done
           # Configure kubelet --provider-id so the Node registers with the

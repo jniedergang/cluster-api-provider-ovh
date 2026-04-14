@@ -680,7 +680,33 @@ func (r *OVHClusterReconciler) reconcileFloatingIP(scope *ClusterScope, lb *ovhc
 			return fip.IP, nil
 		}
 
-		return "", nil // keep retrying next reconcile
+		// FIP ID stale (404) — OVH replaced it during async provisioning.
+		// Clear the status and rediscover via the LB / FIP listing.
+		if ovhclient.IsNotFound(gerr) {
+			logger.Info("Stale FIP ID in status, rediscovering", "staleID", scope.OVHCluster.Status.FloatingIPID)
+			scope.OVHCluster.Status.FloatingIPID = ""
+		} else {
+			return "", nil // keep retrying next reconcile
+		}
+	}
+
+	// No (or stale) FloatingIPID — try to discover the FIP via LB association.
+	if fips, lerr := scope.OVHClient.ListFloatingIPs(); lerr == nil {
+		for i := range fips {
+			if fips[i].AssociatedEntity != nil && fips[i].AssociatedEntity.ID == lb.ID {
+				scope.OVHCluster.Status.FloatingIPID = fips[i].ID
+
+				if fips[i].IP != "" {
+					if err := r.ensureGatewayExposed(scope); err != nil {
+						logger.Info("Warning: failed to expose gateway, will retry", "error", err)
+					}
+
+					return fips[i].IP, nil
+				}
+
+				return "", nil
+			}
+		}
 	}
 
 	if lb.VIPAddress == "" {
@@ -697,8 +723,7 @@ func (r *OVHClusterReconciler) reconcileFloatingIP(scope *ClusterScope, lb *ovhc
 		return "", fmt.Errorf("allocating floating IP for LB: %w", err)
 	}
 
-	scope.OVHCluster.Status.FloatingIPID = fip.ID
-	logger.Info("Floating IP attached", "fipID", fip.ID, "ip", fip.IP, "lbID", lb.ID)
+	logger.Info("Floating IP allocation requested", "fipID", fip.ID, "ip", fip.IP, "lbID", lb.ID)
 
 	// The allocate+attach call created an internet gateway on the private
 	// subnet. For instances on that subnet to get SNAT outbound internet
@@ -709,19 +734,34 @@ func (r *OVHClusterReconciler) reconcileFloatingIP(scope *ClusterScope, lb *ovhc
 			"error", err)
 	}
 
-	// The allocation response may not yet include the public IP address.
-	// Fetch the floating IP directly to get the actual IP, retrying on next
-	// reconcile if still empty.
-	if fip.IP == "" {
-		refreshed, gerr := scope.OVHClient.GetFloatingIP(fip.ID)
-		if gerr == nil && refreshed != nil && refreshed.IP != "" {
-			return refreshed.IP, nil
-		}
+	// OVH quirk: the ID returned from CreateLoadBalancerFloatingIP is a
+	// transient placeholder — the actually-allocated FIP gets a different
+	// ID and is recorded on the LB once provisioning completes. Look up
+	// the LB to find the real FIP, falling back to listing FIPs by LB
+	// association if the LB hasn't caught up yet.
+	if refreshedLB, lerr := scope.OVHClient.GetLoadBalancer(lb.ID); lerr == nil &&
+		refreshedLB != nil && refreshedLB.FloatingIP != nil &&
+		refreshedLB.FloatingIP.ID != "" {
+		scope.OVHCluster.Status.FloatingIPID = refreshedLB.FloatingIP.ID
 
-		return "", nil // retry next reconcile
+		if refreshedLB.FloatingIP.IP != "" {
+			return refreshedLB.FloatingIP.IP, nil
+		}
+	} else if fips, lerr := scope.OVHClient.ListFloatingIPs(); lerr == nil {
+		for i := range fips {
+			if fips[i].AssociatedEntity != nil && fips[i].AssociatedEntity.ID == lb.ID {
+				scope.OVHCluster.Status.FloatingIPID = fips[i].ID
+
+				if fips[i].IP != "" {
+					return fips[i].IP, nil
+				}
+
+				break
+			}
+		}
 	}
 
-	return fip.IP, nil
+	return "", nil // retry next reconcile
 }
 
 // ensureGatewayExposed finds the internet gateway on the cluster's private

@@ -351,6 +351,7 @@ func (r *OVHClusterReconciler) reconcileNetwork(scope *ClusterScope) error {
 
 			network, err := scope.OVHClient.CreatePrivateNetwork(ovhclient.CreateNetworkOpts{
 				Name:    networkName,
+				VlanID:  netConfig.VlanID,
 				Regions: []string{region},
 			})
 			if err != nil {

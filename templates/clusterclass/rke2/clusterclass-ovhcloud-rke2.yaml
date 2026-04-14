@@ -69,6 +69,20 @@ spec:
         openAPIV3Schema:
           type: string
           default: "10.42.0.0/24"
+    - name: vlanID
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: integer
+          default: 0
+          minimum: 0
+          maximum: 4094
+          description: |
+            vRack VLAN ID for the cluster's private network. OVH allows
+            ONLY ONE private network per VLAN ID per project, so when
+            running multiple CAPIOVH clusters in the same OVH project
+            you MUST give each cluster a distinct vlanID. Default 0
+            (untagged) only works for a single cluster.
     - name: lbFlavor
       required: false
       schema:
@@ -152,6 +166,10 @@ spec:
               path: /spec/template/spec/networkConfig/subnetCIDR
               valueFrom:
                 variable: subnetCIDR
+            - op: add
+              path: /spec/template/spec/networkConfig/vlanID
+              valueFrom:
+                variable: vlanID
             - op: add
               path: /spec/template/spec/loadBalancerConfig/flavorName
               valueFrom:

@@ -159,6 +159,16 @@ spec:
                       SubnetCIDR is the CIDR for the subnet (e.g. "10.0.0.0/24").
                       Required when creating a new network.
                     type: string
+                  vlanID:
+                    description: |-
+                      VlanID is the vRack VLAN ID for the new private network.
+                      OVH allows only one private network per VLAN ID per project, so when
+                      running multiple CAPIOVH clusters in the same OVH project you MUST
+                      give each cluster a distinct VlanID. Defaults to 0 (untagged) which
+                      is fine for a single cluster but conflicts on multi-cluster setups.
+                    maximum: 4094
+                    minimum: 0
+                    type: integer
                 required:
                 - subnetCIDR
                 type: object

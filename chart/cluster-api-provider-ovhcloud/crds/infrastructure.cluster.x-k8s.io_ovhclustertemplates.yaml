@@ -1,13 +1,12 @@
----
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  labels:
-    cluster.x-k8s.io/provider: infrastructure-ovhcloud
-    cluster.x-k8s.io/v1beta1: v1alpha1
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.5
   name: ovhclustertemplates.infrastructure.cluster.x-k8s.io
+  labels:
+    cluster.x-k8s.io/provider: infrastructure-ovhcloud
+    cluster.x-k8s.io/v1beta1: v1alpha1
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
@@ -28,19 +27,28 @@ spec:
           API.
         properties:
           apiVersion:
-            description: |-
-              APIVersion defines the versioned schema of this representation of an object.
-              Servers should convert recognized schemas to the latest internal value, and
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object.
+
+              Servers should convert recognized schemas to the latest internal value,
+              and
+
               may reject unrecognized values.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: |-
-              Kind is a string value representing the REST resource this object represents.
-              Servers may infer this from the endpoint the client submits requests to.
+            description: 'Kind is a string value representing the REST resource this
+              object represents.
+
+              Servers may infer this from the endpoint the client submits requests
+              to.
+
               Cannot be updated.
+
               In CamelCase.
-              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -57,20 +65,28 @@ spec:
                       annotations:
                         additionalProperties:
                           type: string
-                        description: |-
-                          annotations is an unstructured key value map stored with a resource that may be
-                          set by external tools to store and retrieve arbitrary metadata. They are not
+                        description: 'annotations is an unstructured key value map
+                          stored with a resource that may be
+
+                          set by external tools to store and retrieve arbitrary metadata.
+                          They are not
+
                           queryable and should be preserved when modifying objects.
-                          More info: http://kubernetes.io/docs/user-guide/annotations
+
+                          More info: http://kubernetes.io/docs/user-guide/annotations'
                         type: object
                       labels:
                         additionalProperties:
                           type: string
-                        description: |-
-                          labels is a map of string keys and values that can be used to organize and categorize
-                          (scope and select) objects. May match selectors of replication controllers
+                        description: 'labels is a map of string keys and values that
+                          can be used to organize and categorize
+
+                          (scope and select) objects. May match selectors of replication
+                          controllers
+
                           and services.
-                          More info: http://kubernetes.io/docs/user-guide/labels
+
+                          More info: http://kubernetes.io/docs/user-guide/labels'
                         type: object
                     type: object
                   spec:
@@ -95,9 +111,11 @@ spec:
                         - port
                         type: object
                       identitySecret:
-                        description: |-
-                          IdentitySecret references the Secret containing OVH API credentials.
-                          The Secret must contain keys: endpoint, applicationKey, applicationSecret, consumerKey.
+                        description: 'IdentitySecret references the Secret containing
+                          OVH API credentials.
+
+                          The Secret must contain keys: endpoint, applicationKey,
+                          applicationSecret, consumerKey.'
                         properties:
                           name:
                             description: Name is the name of the Secret.
@@ -115,14 +133,17 @@ spec:
                         properties:
                           flavorName:
                             default: small
-                            description: |-
-                              FlavorName is the OVH Octavia LB flavor name (small, medium, large, xl).
-                              Defaults to "small" if not specified.
+                            description: 'FlavorName is the OVH Octavia LB flavor
+                              name (small, medium, large, xl).
+
+                              Defaults to "small" if not specified.'
                             type: string
                           floatingNetworkID:
-                            description: |-
-                              FloatingNetworkID is the external network for the floating IP.
-                              If set, a floating IP is created for external access to the control plane.
+                            description: 'FloatingNetworkID is the external network
+                              for the floating IP.
+
+                              If set, a floating IP is created for external access
+                              to the control plane.'
                             type: string
                           listeners:
                             description: Listeners is a list of additional listeners
@@ -158,9 +179,11 @@ spec:
                               type: object
                             type: array
                           subnetID:
-                            description: |-
-                              SubnetID is the private subnet to attach the load balancer to.
-                              If empty, the controller uses the subnet it created via NetworkConfig.
+                            description: 'SubnetID is the private subnet to attach
+                              the load balancer to.
+
+                              If empty, the controller uses the subnet it created
+                              via NetworkConfig.'
                             type: string
                         type: object
                       networkConfig:
@@ -177,15 +200,35 @@ spec:
                               subnet.
                             type: string
                           privateNetworkID:
-                            description: |-
-                              PrivateNetworkID is the ID of an existing vRack private network.
-                              If empty, a new private network is created automatically.
+                            description: 'PrivateNetworkID is the ID of an existing
+                              vRack private network.
+
+                              If empty, a new private network is created automatically.'
                             type: string
                           subnetCIDR:
-                            description: |-
-                              SubnetCIDR is the CIDR for the subnet (e.g. "10.0.0.0/24").
-                              Required when creating a new network.
+                            description: 'SubnetCIDR is the CIDR for the subnet (e.g.
+                              "10.0.0.0/24").
+
+                              Required when creating a new network.'
                             type: string
+                          vlanID:
+                            description: 'VlanID is the vRack VLAN ID for the new
+                              private network.
+
+                              OVH allows only one private network per VLAN ID per
+                              project, so when
+
+                              running multiple CAPIOVH clusters in the same OVH project
+                              you MUST
+
+                              give each cluster a distinct VlanID. Defaults to 0 (untagged)
+                              which
+
+                              is fine for a single cluster but conflicts on multi-cluster
+                              setups.'
+                            maximum: 4094
+                            minimum: 0
+                            type: integer
                         required:
                         - subnetCIDR
                         type: object

@@ -132,6 +132,16 @@ type OVHNetworkConfig struct {
 	// Required when creating a new network.
 	SubnetCIDR string `json:"subnetCIDR"`
 
+	// VlanID is the vRack VLAN ID for the new private network.
+	// OVH allows only one private network per VLAN ID per project, so when
+	// running multiple CAPIOVH clusters in the same OVH project you MUST
+	// give each cluster a distinct VlanID. Defaults to 0 (untagged) which
+	// is fine for a single cluster but conflicts on multi-cluster setups.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=4094
+	VlanID int `json:"vlanID,omitempty"`
+
 	// Gateway is the gateway IP address for the subnet.
 	// +optional
 	Gateway string `json:"gateway,omitempty"`

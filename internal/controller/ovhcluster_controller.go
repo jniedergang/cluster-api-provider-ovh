@@ -1011,12 +1011,26 @@ func (r *OVHClusterReconciler) ReconcileDelete(scope *ClusterScope) (reconcile.R
 	}
 
 	// Delete floating IPs we captured before LB deletion.
+	// Quirk: if the LB is in PENDING_DELETE state, OVH may "succeed" the
+	// FIP delete by detaching it without removing the resource. Verify
+	// after each call and requeue if any FIP still exists.
+	fipStillThere := false
+
 	for _, fipID := range fipsToDelete {
 		logger.Info("Deleting floating IP", "fipID", fipID)
 
 		if err := scope.OVHClient.DeleteFloatingIP(fipID); err != nil {
 			logger.Error(err, "failed to delete floating IP", "fipID", fipID)
 		}
+
+		if fip, err := scope.OVHClient.GetFloatingIP(fipID); err == nil && fip != nil {
+			logger.Info("Floating IP still present after delete; will retry", "fipID", fipID, "status", fip.Status)
+			fipStillThere = true
+		}
+	}
+
+	if fipStillThere {
+		return ctrl.Result{RequeueAfter: requeueTimeShort}, nil
 	}
 
 	// Delete the internet gateway we created (named capi-<cluster>-gw).

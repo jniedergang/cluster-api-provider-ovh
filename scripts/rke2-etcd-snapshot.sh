@@ -16,7 +16,14 @@
 #   ./rke2-etcd-snapshot.sh restore <snapshot>     <ssh-host>
 #
 # <ssh-host> must SSH-resolve to a CONTROL-PLANE node (worker nodes
-# don't have etcd). Assumes the SSH user has sudo NOPASSWD.
+# don't have etcd). The SSH user needs sudo NOPASSWD; some OVH base
+# images don't grant it. If sudo asks for a password, fall back to:
+#
+#   kubectl --kubeconfig <workload-kc> exec -n default <priv-pod> -- \
+#     chroot /host /usr/local/bin/rke2 etcd-snapshot list
+#
+# (priv-pod = a pod scheduled on a CP with hostPID/hostNetwork/privileged
+# + hostPath / mount — see docs/operations.md for the manifest.)
 #
 # RESTORE PROCEDURE caveats (this is intentionally manual):
 #   1. Stop rke2-server on ALL CP nodes EXCEPT the one you restore on.

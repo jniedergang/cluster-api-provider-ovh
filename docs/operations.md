@@ -218,6 +218,44 @@ For S3-backed snapshots (off-instance storage), see the
 endpoint, bucket, region, credential secret etc. Required for any
 serious DR plan since on-disk snapshots disappear with the instance.
 
+#### When sudo NOPASSWD is unavailable
+
+Some OVH base images don't grant the `ubuntu` user sudo NOPASSWD even
+though cloud-init declares it. As a fallback, run `rke2 etcd-snapshot`
+through a privileged pod scheduled on a CP node:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: etcd-snapshot-tool
+  namespace: default
+spec:
+  hostPID: true
+  hostNetwork: true
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+  tolerations: [{operator: Exists}]
+  containers:
+  - name: tool
+    image: docker.io/library/alpine:3.20
+    command: ["sleep","3600"]
+    securityContext: {privileged: true}
+    volumeMounts: [{name: host, mountPath: /host}]
+  volumes:
+  - name: host
+    hostPath: {path: /}
+```
+
+Then:
+
+```bash
+kubectl exec -n default etcd-snapshot-tool -- \
+  chroot /host /usr/local/bin/rke2 etcd-snapshot list
+kubectl exec -n default etcd-snapshot-tool -- \
+  chroot /host /usr/local/bin/rke2 etcd-snapshot save --name=my-snap
+```
+
 ## Monitoring
 
 ### Prometheus metrics

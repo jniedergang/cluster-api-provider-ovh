@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.2.2] - 2026-04-15
+
+### Added
+
+- **LB pool health monitor**: every Octavia pool created by CAPIOVH
+  (api-server-pool and rke2-register-pool) now gets a TCP health
+  monitor attached (delay 5s, timeout 3s, max 2 retries → ~10 s
+  failure detection). Without it, the LB kept routing traffic to a
+  dead CP after a node failure, dropping API availability to ~52 %
+  during a 3-CP failover (v0.2.1 baseline). With the monitor, the
+  same scenario reaches **100 % availability** (260 / 260 probes
+  succeed) and CAPI rebuilds the failed CP in ~4 m 21 s. Implementation
+  is idempotent: the helper finds the existing monitor by name and
+  retries on every reconcile to absorb the OVH "pool immutable"
+  race that locks the pool ~1 s after creation.
+- **RKE2 etcd snapshot lifecycle helper**:
+  `scripts/rke2-etcd-snapshot.sh` exposes `list / create / restore`
+  via SSH against any control-plane node. Restore is intentionally
+  guided (single-CP `--cluster-reset`, then operator deletes the
+  other CPs via CAPI) to prevent silent data divergence.
+  Default RKE2 schedule (`0 */5 * * *`, 5-snapshot retention,
+  on-disk at `/var/lib/rancher/rke2/server/db/snapshots/`) is
+  documented in [docs/operations.md](docs/operations.md), along
+  with a fallback procedure (privileged hostPID pod with
+  `chroot /host`) for OVH base images that don't grant sudo
+  NOPASSWD despite cloud-init.
+
+### Fixed
+
+- **FIP cleanup convergence on cluster delete**: the OVH floating-IP
+  DELETE endpoint returns 200 immediately but the resource lingers
+  for several minutes with `status: down` and
+  `associatedEntity: null`. v0.2.1 retried the DELETE in a tight
+  reconcile loop, never converged, and required a manual
+  `ovh DELETE /floatingip/{id}` call to unblock cluster teardown.
+  Now the controller treats `detached + down` as already-deleted
+  (OVH will reap async), distinguishing it from a still-attached
+  FIP that genuinely needs another delete attempt. Cluster delete
+  now converges without manual intervention in the common case.
+
 ## [v0.2.1] - 2026-04-14
 
 ### Added

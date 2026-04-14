@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [v0.2.1] - 2026-04-14
+
+### Added
+
+- **Multi-cluster vRack isolation**: new `vlanID` topology variable
+  (and `OVHClusterSpec.NetworkConfig.VlanID` field, range 0-4094). OVH
+  allows only one private network per VLAN ID per project; CAPIOVH
+  used to always create networks with vlanId=0, silently blocking any
+  second cluster in the same project. Each cluster must now declare a
+  distinct vlanID when sharing a project.
+- **Production readiness validation matrix** in
+  [docs/TESTING.md](docs/TESTING.md) tracking 17 manual scenarios
+  (cluster lifecycle, scale, upgrade, HA, multi-cluster, etc.).
+- **`scripts/import-to-rancher.sh`** companion + `rancherServerCA`
+  topology variable already shipped in v0.2.0; this release confirms
+  the live UI workflow is wired end-to-end.
+- **`test/e2e/run-validation-tests.sh`**: 16 negative webhook + CRD
+  validation cases plus 2 positive sanity specs.
+
+### Fixed
+
+- **DNS bootstrap race condition**: previous `preRKE2Commands` restarted
+  systemd-resolved after replacing `/etc/resolv.conf`, which races with
+  the immediately-following `curl get.rke2.io | sh`. Symptoms: the wait
+  loop completes in <1s but `curl github.com` then fails with
+  `Could not resolve host`, blocking RKE2 install entirely. Live
+  observed on capi-ovh-2 v0.2.1-rc1. Fix: drop the resolved restart
+  (the static `/etc/resolv.conf` is enough — libresolv reads it on
+  every query) and switch the wait probe from `getent` (NSS, hits
+  systemd-resolved stub) to a `python3 socket.gethostbyname` call
+  (libresolv directly, same path as curl).
+
 ## [v0.2.0] - 2026-04-14
 
 ### Added

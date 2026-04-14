@@ -862,45 +862,44 @@ func (r *OVHClusterReconciler) reconcileLBListener(scope *ClusterScope) error {
 }
 
 // reconcileLBPool ensures the backend pool exists on the LB. Idempotent.
+// Also ensures a TCP health monitor is attached on EVERY reconcile (the
+// HM POST often races OVH's pool lock and needs to be retried on a later
+// reconcile — FindHealthMonitorByName makes this a no-op once it exists).
 func (r *OVHClusterReconciler) reconcileLBPool(scope *ClusterScope) error {
-	if scope.OVHCluster.Status.PoolID != "" {
-		return nil
-	}
-
 	logger := scope.Logger
 	lbID := scope.OVHCluster.Status.LoadBalancerID
 	poolName := apiServerListenerName + "-pool"
 
-	existing, err := scope.OVHClient.FindPoolByName(lbID, poolName)
-	if err != nil {
-		return fmt.Errorf("looking up api-server pool: %w", err)
+	if scope.OVHCluster.Status.PoolID == "" {
+		existing, err := scope.OVHClient.FindPoolByName(lbID, poolName)
+		if err != nil {
+			return fmt.Errorf("looking up api-server pool: %w", err)
+		}
+
+		if existing != nil {
+			logger.Info("Adopting existing API server pool", "poolID", existing.ID)
+			scope.OVHCluster.Status.PoolID = existing.ID
+		} else {
+			logger.Info("Creating backend pool on LB")
+
+			pool, err := scope.OVHClient.CreatePool(ovhclient.CreatePoolOpts{
+				Name:           poolName,
+				Protocol:       apiServerProtocol,
+				Algorithm:      lbAlgorithm,
+				ListenerID:     scope.OVHCluster.Status.ListenerID,
+				LoadBalancerID: lbID,
+			})
+			if err != nil {
+				return fmt.Errorf("creating pool: %w", err)
+			}
+
+			scope.OVHCluster.Status.PoolID = pool.ID
+			logger.Info("Pool created", "poolID", pool.ID)
+		}
 	}
 
-	if existing != nil {
-		logger.Info("Adopting existing API server pool", "poolID", existing.ID)
-		scope.OVHCluster.Status.PoolID = existing.ID
-
-		return nil
-	}
-
-	logger.Info("Creating backend pool on LB")
-
-	pool, err := scope.OVHClient.CreatePool(ovhclient.CreatePoolOpts{
-		Name:           poolName,
-		Protocol:       apiServerProtocol,
-		Algorithm:      lbAlgorithm,
-		ListenerID:     scope.OVHCluster.Status.ListenerID,
-		LoadBalancerID: lbID,
-	})
-	if err != nil {
-		return fmt.Errorf("creating pool: %w", err)
-	}
-
-	scope.OVHCluster.Status.PoolID = pool.ID
-	logger.Info("Pool created", "poolID", pool.ID)
-
-	if err := r.ensurePoolHealthMonitor(scope, pool.ID, poolName); err != nil {
-		logger.Info("Warning: failed to attach health monitor to api-server pool", "error", err)
+	if err := r.ensurePoolHealthMonitor(scope, scope.OVHCluster.Status.PoolID, poolName); err != nil {
+		logger.Info("Warning: failed to attach health monitor to api-server pool, will retry", "error", err)
 	}
 
 	return nil
@@ -948,46 +947,42 @@ func (r *OVHClusterReconciler) reconcileRKE2RegisterListener(scope *ClusterScope
 }
 
 // reconcileRKE2RegisterPool ensures the backend pool for the RKE2 supervisor
-// port exists on the LB. Idempotent.
+// port exists on the LB. Idempotent. HM attached on every reconcile.
 func (r *OVHClusterReconciler) reconcileRKE2RegisterPool(scope *ClusterScope) error {
-	if scope.OVHCluster.Status.RegisterPoolID != "" {
-		return nil
-	}
-
 	logger := scope.Logger
 	lbID := scope.OVHCluster.Status.LoadBalancerID
 	poolName := rke2RegisterListenerName + "-pool"
 
-	existing, err := scope.OVHClient.FindPoolByName(lbID, poolName)
-	if err != nil {
-		return fmt.Errorf("looking up rke2-register pool: %w", err)
+	if scope.OVHCluster.Status.RegisterPoolID == "" {
+		existing, err := scope.OVHClient.FindPoolByName(lbID, poolName)
+		if err != nil {
+			return fmt.Errorf("looking up rke2-register pool: %w", err)
+		}
+
+		if existing != nil {
+			logger.Info("Adopting existing RKE2 supervisor pool", "poolID", existing.ID)
+			scope.OVHCluster.Status.RegisterPoolID = existing.ID
+		} else {
+			logger.Info("Creating RKE2 supervisor backend pool on LB")
+
+			pool, err := scope.OVHClient.CreatePool(ovhclient.CreatePoolOpts{
+				Name:           poolName,
+				Protocol:       apiServerProtocol,
+				Algorithm:      lbAlgorithm,
+				ListenerID:     scope.OVHCluster.Status.RegisterListenerID,
+				LoadBalancerID: lbID,
+			})
+			if err != nil {
+				return fmt.Errorf("creating RKE2 supervisor pool: %w", err)
+			}
+
+			scope.OVHCluster.Status.RegisterPoolID = pool.ID
+			logger.Info("RKE2 supervisor pool created", "poolID", pool.ID)
+		}
 	}
 
-	if existing != nil {
-		logger.Info("Adopting existing RKE2 supervisor pool", "poolID", existing.ID)
-		scope.OVHCluster.Status.RegisterPoolID = existing.ID
-
-		return nil
-	}
-
-	logger.Info("Creating RKE2 supervisor backend pool on LB")
-
-	pool, err := scope.OVHClient.CreatePool(ovhclient.CreatePoolOpts{
-		Name:           poolName,
-		Protocol:       apiServerProtocol,
-		Algorithm:      lbAlgorithm,
-		ListenerID:     scope.OVHCluster.Status.RegisterListenerID,
-		LoadBalancerID: lbID,
-	})
-	if err != nil {
-		return fmt.Errorf("creating RKE2 supervisor pool: %w", err)
-	}
-
-	scope.OVHCluster.Status.RegisterPoolID = pool.ID
-	logger.Info("RKE2 supervisor pool created", "poolID", pool.ID)
-
-	if err := r.ensurePoolHealthMonitor(scope, pool.ID, poolName); err != nil {
-		logger.Info("Warning: failed to attach health monitor to rke2-register pool", "error", err)
+	if err := r.ensurePoolHealthMonitor(scope, scope.OVHCluster.Status.RegisterPoolID, poolName); err != nil {
+		logger.Info("Warning: failed to attach health monitor to rke2-register pool, will retry", "error", err)
 	}
 
 	return nil

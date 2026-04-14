@@ -365,6 +365,12 @@ spec:
             getent hosts github.com >/dev/null 2>&1 && break
             sleep 2
           done
-        - |
-          # provider-id command injected by ClusterClass patch (region baked in)
-          true
+          REGION=$(cat /etc/capiovh/region 2>/dev/null)
+          UUID=$(curl -sf http://169.254.169.254/openstack/latest/meta_data.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["uuid"])' 2>/dev/null)
+          if [ -n "$REGION" ] && [ -n "$UUID" ]; then
+            mkdir -p /etc/rancher/rke2/config.yaml.d
+            cat > /etc/rancher/rke2/config.yaml.d/90-provider-id.yaml <<EOF
+          kubelet-arg:
+            - "provider-id=ovhcloud://${REGION}/${UUID}"
+          EOF
+          fi

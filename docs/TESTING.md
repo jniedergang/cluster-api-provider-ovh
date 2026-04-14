@@ -92,3 +92,40 @@ Unit and envtest run automatically on every PR via
 
 E2E is run manually before each release. Automating it in CI would require
 a dedicated OVH project budget; not currently planned.
+
+## Production readiness validation matrix
+
+Manual scenarios run on a real OVH project against a live cluster, to
+exercise behaviors that automated tests do not cover (rollouts, network,
+HA, multi-tenancy). Each row is a one-shot scenario; results are recorded
+in the release CHANGELOG entry rather than continuously re-run.
+
+Status legend: ✅ passed live | ⚠️ passed with caveat | ❌ blocked | ⏳ planned
+
+| #  | Scenario                                              | Status | First validated | Notes |
+|----|-------------------------------------------------------|--------|-----------------|-------|
+| 1  | Cluster create via Rancher UI (1 CP + 1 worker)       | ✅      | v0.2.0          | ~7 min on v1.32.4+rke2r1 |
+| 2  | Cluster create via kubectl (1 CP + 1 worker)          | ✅      | v0.2.0          | ~10 min |
+| 3  | Cluster delete + 0 OVH residual                       | ✅      | v0.2.0          | FIP cleanup is async, controller retries |
+| 4  | Scale CP 1→3 + worker 1→2                             | ✅      | v0.2.0          | ~4 min on warm cluster (image cache) |
+| 5  | kubectl from external host via LB FIP                 | ✅      | v0.2.0          | Cert SAN includes FIP IP |
+| 5b | kubectl via Rancher proxy                             | ⚠️      | v0.2.0          | Works at first import; tunnel can flake post-rollout (Rancher-side) |
+| 6  | MachineHealthCheck remediation (delete worker)        | ✅      | v0.2.0          | Net 30 s after drain unblocks; needs PDB on single-replica addons |
+| 7  | k8s in-place upgrade (v1.32.4 → v1.33.10)             | ✅      | v0.2.0          | ~9 min total; ~30 s API window on single-CP swap |
+| 8  | Multi-cluster in same OVH project                     | ✅      | v0.2.1          | Requires distinct `vlanID` topology variable per cluster |
+| 9  | Webhook validation rejects bad input                  | ⏳      | —               | Negative paths: invalid CIDR, missing flavorName, empty sshKey |
+| 10 | HA control-plane survives 1 CP failure                | ⏳      | —               | Force-delete one of 3 CP machines, etcd quorum continues |
+| 11 | Etcd snapshot + restore                               | ⏳      | —               | RKE2 takes scheduled snapshots; validate disaster recovery |
+| 12 | PVC via OVH block storage CSI                         | ⏳      | —               | No CSI installed today; gap report for v0.3.0 |
+| 13 | Service type=LoadBalancer via cloud-controller        | ⏳      | —               | No CCM-OVH today; gap report for v0.3.0 |
+| 14 | Multi-cluster simultaneous delete + cleanup           | ⏳      | —               | Stress the cleanup path under parallelism |
+| 15 | Scheduler stress (50-pod deployment)                  | ⏳      | —               | Pod CIDR / etcd write throughput sanity |
+| 16 | BYOI image (custom snapshot)                          | ⏳      | —               | Code path exists in `pkg/ovh.GetImageByName`, never live-tested |
+| 17 | 24 h soak (no leak, no OOMKilled, certs stable)       | ⏳      | —               | Long-running observability via Grafana |
+
+Bug fixes uncovered by these scenarios are documented in
+[CHANGELOG.md](../CHANGELOG.md) and the [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+"OVH-specific gotchas" section.
+
+When you run a new scenario, update this table with the date it was
+first validated and the release that includes the fix(es) it required.

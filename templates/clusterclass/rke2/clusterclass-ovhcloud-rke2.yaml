@@ -106,6 +106,21 @@ spec:
       schema:
         openAPIV3Schema:
           type: string
+    - name: rancherServerCA
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: ""
+          description: |
+            PEM-encoded CA bundle that the workload cluster's
+            cattle-cluster-agent should trust when connecting to Rancher
+            (required when Rancher uses STRICT_VERIFY=true with a custom
+            or LE-issued cert). When non-empty, a ConfigMap
+            cattle-system/serverca is auto-created on the workload
+            cluster via the RKE2 manifest mechanism. The agent deployment
+            still needs a one-time patch to mount it — see
+            scripts/import-to-rancher.sh.
 
   # --- Patches that wire variables into the templates ---
   patches:
@@ -215,6 +230,9 @@ spec:
                   [
                     {"path":"/etc/capiovh/region","owner":"root:root","permissions":"0644","content":{{ .region | quote }}},
                     {"path":"/etc/rancher/rke2/config.yaml.d/10-cidrs.yaml","owner":"root:root","permissions":"0644","content":"cluster-cidr: 10.244.0.0/16\nservice-cidr: 10.96.0.0/16\ncluster-dns: 10.96.0.10\n"}
+                    {{- if .rancherServerCA }},
+                    {"path":"/var/lib/rancher/rke2/server/manifests/capiovh-rancher-serverca.yaml","owner":"root:root","permissions":"0640","content":{{ printf "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: cattle-system\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: serverca\n  namespace: cattle-system\ndata:\n  serverca: |\n%s" (.rancherServerCA | indent 4) | quote }}}
+                    {{- end }}
                   ]
 
     - name: worker-region-file

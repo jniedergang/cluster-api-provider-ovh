@@ -65,6 +65,16 @@ const (
 	rke2RegisterListenerName = "rke2-register"
 	rke2RegisterLBPort       = 9345
 	rke2RegisterBackendPort  = 9345
+
+	// Health-monitor tuning. Without an HM the LB pool stays "noMonitor"
+	// and routes round-robin to ALL members, including dead/booting CPs
+	// during a rolling update or failover. With these defaults a backend
+	// is marked unhealthy after ~10 s (2 retries × 5 s delay) of failed
+	// TCP probes.
+	hmType       = "tcp"
+	hmDelay      = 5
+	hmTimeout    = 3
+	hmMaxRetries = 2
 )
 
 // ClusterScope stores context data for the OVHCluster reconciler.
@@ -889,6 +899,10 @@ func (r *OVHClusterReconciler) reconcileLBPool(scope *ClusterScope) error {
 	scope.OVHCluster.Status.PoolID = pool.ID
 	logger.Info("Pool created", "poolID", pool.ID)
 
+	if err := r.ensurePoolHealthMonitor(scope, pool.ID, poolName); err != nil {
+		logger.Info("Warning: failed to attach health monitor to api-server pool", "error", err)
+	}
+
 	return nil
 }
 
@@ -972,6 +986,44 @@ func (r *OVHClusterReconciler) reconcileRKE2RegisterPool(scope *ClusterScope) er
 	scope.OVHCluster.Status.RegisterPoolID = pool.ID
 	logger.Info("RKE2 supervisor pool created", "poolID", pool.ID)
 
+	if err := r.ensurePoolHealthMonitor(scope, pool.ID, poolName); err != nil {
+		logger.Info("Warning: failed to attach health monitor to rke2-register pool", "error", err)
+	}
+
+	return nil
+}
+
+// ensurePoolHealthMonitor attaches a TCP health monitor to a pool so the
+// LB only routes to healthy backends. Idempotent: looks up by name first,
+// no-op if already exists. Without this, the pool stays "noMonitor" and
+// requests are round-robined to dead/booting CPs during failover.
+func (r *OVHClusterReconciler) ensurePoolHealthMonitor(scope *ClusterScope, poolID, poolName string) error {
+	hmName := poolName + "-hm"
+
+	existing, err := scope.OVHClient.FindHealthMonitorByName(hmName)
+	if err != nil {
+		return fmt.Errorf("looking up health monitor %q: %w", hmName, err)
+	}
+
+	if existing != nil {
+		return nil
+	}
+
+	hm, err := scope.OVHClient.CreateHealthMonitor(ovhclient.CreateHealthMonitorOpts{
+		Name:        hmName,
+		MonitorType: hmType,
+		Delay:       hmDelay,
+		Timeout:     hmTimeout,
+		MaxRetries:  hmMaxRetries,
+		PoolID:      poolID,
+	})
+	if err != nil {
+		return fmt.Errorf("creating health monitor %q: %w", hmName, err)
+	}
+
+	scope.Logger.Info("Attached TCP health monitor to pool",
+		"hmID", hm.ID, "poolID", poolID, "delay", hmDelay, "timeout", hmTimeout, "maxRetries", hmMaxRetries)
+
 	return nil
 }
 
@@ -1052,10 +1104,17 @@ func (r *OVHClusterReconciler) ReconcileDelete(scope *ClusterScope) (reconcile.R
 	}
 
 	// Delete floating IPs we captured before LB deletion.
-	// Quirk: if the LB is in PENDING_DELETE state, OVH may "succeed" the
-	// FIP delete by detaching it without removing the resource. Verify
-	// after each call and requeue if any FIP still exists.
-	fipStillThere := false
+	// Two OVH quirks here:
+	//   1. If the LB is in PENDING_DELETE, the first DeleteFloatingIP call
+	//      "succeeds" (200 OK) but only DETACHES the FIP without removing it.
+	//      A subsequent call deletes it once the LB is fully gone.
+	//   2. After the FIP is fully detached (status: down, associatedEntity:
+	//      nil), DeleteFloatingIP returns 200 and OVH schedules an async
+	//      removal. Subsequent GET will keep returning the "down" resource
+	//      for several minutes. Treat that state as "deleted from CAPI's
+	//      POV" — the OVH backend will reap it eventually and the resource
+	//      no longer blocks any of our other cleanup steps.
+	requeueForFIP := false
 
 	for _, fipID := range fipsToDelete {
 		logger.Info("Deleting floating IP", "fipID", fipID)
@@ -1064,13 +1123,26 @@ func (r *OVHClusterReconciler) ReconcileDelete(scope *ClusterScope) (reconcile.R
 			logger.Error(err, "failed to delete floating IP", "fipID", fipID)
 		}
 
-		if fip, err := scope.OVHClient.GetFloatingIP(fipID); err == nil && fip != nil {
-			logger.Info("Floating IP still present after delete; will retry", "fipID", fipID, "status", fip.Status)
-			fipStillThere = true
+		fip, gerr := scope.OVHClient.GetFloatingIP(fipID)
+		if gerr != nil || fip == nil {
+			continue // gone for real
 		}
+
+		// Detached + down → OVH already accepted the delete, just async.
+		// Don't keep requeueing.
+		if fip.AssociatedEntity == nil && fip.Status == "down" {
+			logger.Info("Floating IP detached and down; OVH will reap async, treating as deleted",
+				"fipID", fipID)
+			continue
+		}
+
+		// Still attached / still active → real retry needed.
+		logger.Info("Floating IP still present after delete; will retry",
+			"fipID", fipID, "status", fip.Status)
+		requeueForFIP = true
 	}
 
-	if fipStillThere {
+	if requeueForFIP {
 		return ctrl.Result{RequeueAfter: requeueTimeShort}, nil
 	}
 

@@ -1004,6 +1004,85 @@ func (c *Client) ListPoolMembers(poolID string) ([]Member, error) {
 	return members, nil
 }
 
+// --- Health Monitor Operations ---
+
+// CreateHealthMonitor attaches a health monitor to a backend pool. Without
+// one, the LB pool is "noMonitor" and routes round-robin to ALL members
+// regardless of their actual health, breaking rolling updates and HA.
+func (c *Client) CreateHealthMonitor(opts CreateHealthMonitorOpts) (*HealthMonitor, error) {
+	var hm HealthMonitor
+
+	err := c.retryWithBackoff("CreateHealthMonitor", func() error {
+		return c.api.Post(c.regionPath("/loadbalancing/healthMonitor"), opts, &hm)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating health monitor %q: %w", opts.Name, err)
+	}
+
+	return &hm, nil
+}
+
+// GetHealthMonitor retrieves a health monitor by ID.
+func (c *Client) GetHealthMonitor(hmID string) (*HealthMonitor, error) {
+	var hm HealthMonitor
+
+	err := c.retryWithBackoff("GetHealthMonitor", func() error {
+		return c.api.Get(c.regionPath("/loadbalancing/healthMonitor/%s", hmID), &hm)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("getting health monitor %s: %w", hmID, err)
+	}
+
+	return &hm, nil
+}
+
+// ListHealthMonitors lists all health monitors in the region.
+func (c *Client) ListHealthMonitors() ([]HealthMonitor, error) {
+	var hms []HealthMonitor
+
+	err := c.retryWithBackoff("ListHealthMonitors", func() error {
+		return c.api.Get(c.regionPath("/loadbalancing/healthMonitor"), &hms)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing health monitors: %w", err)
+	}
+
+	return hms, nil
+}
+
+// FindHealthMonitorByName returns the first health monitor with the given
+// name, or nil if not found. Used for idempotent creation.
+func (c *Client) FindHealthMonitorByName(name string) (*HealthMonitor, error) {
+	hms, err := c.ListHealthMonitors()
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range hms {
+		if hms[i].Name == name {
+			return &hms[i], nil
+		}
+	}
+
+	return nil, nil
+}
+
+// DeleteHealthMonitor deletes a health monitor by ID.
+func (c *Client) DeleteHealthMonitor(hmID string) error {
+	err := c.retryWithBackoff("DeleteHealthMonitor", func() error {
+		return c.api.Delete(c.regionPath("/loadbalancing/healthMonitor/%s", hmID), nil)
+	})
+	if err != nil {
+		if IsNotFound(err) || IsAlreadyDeleting(err) {
+			return nil
+		}
+
+		return fmt.Errorf("deleting health monitor %s: %w", hmID, err)
+	}
+
+	return nil
+}
+
 // --- Volume Operations ---
 
 // CreateVolume creates a new block storage volume.

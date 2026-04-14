@@ -321,6 +321,38 @@ type addPoolMembersRequest struct {
 	Members []CreateMemberOpts `json:"members"`
 }
 
+// HealthMonitor represents an Octavia health monitor attached to a pool.
+// Without one, the pool routes round-robin to ALL members regardless of
+// their health (operatingStatus stays "noMonitor"), which breaks rolling
+// updates and HA failover semantics.
+type HealthMonitor struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	MonitorType        string `json:"monitorType"` // tcp, http, https
+	Delay              int    `json:"delay"`       // seconds between probes
+	Timeout            int    `json:"timeout"`     // seconds before probe fails
+	MaxRetries         int    `json:"maxRetries"`  // failures before unhealthy
+	PoolID             string `json:"poolId,omitempty"`
+	URLPath            string `json:"urlPath,omitempty"`       // http/https only
+	HTTPMethod         string `json:"httpMethod,omitempty"`    // http/https only
+	ExpectedCodes      string `json:"expectedCodes,omitempty"` // http/https only, e.g. "200" or "200-299"
+	ProvisioningStatus string `json:"provisioningStatus,omitempty"`
+	OperatingStatus    string `json:"operatingStatus,omitempty"`
+}
+
+// CreateHealthMonitorOpts are the parameters for creating a health monitor.
+// MonitorType must be "tcp", "http" or "https" (lowercase).
+// For TCP probes (sufficient for k8s API server / RKE2 supervisor), only
+// Name + MonitorType + Delay + Timeout + MaxRetries + PoolID are needed.
+type CreateHealthMonitorOpts struct {
+	Name        string `json:"name"`
+	MonitorType string `json:"monitorType"`
+	Delay       int    `json:"delay"`
+	Timeout     int    `json:"timeout"`
+	MaxRetries  int    `json:"maxRetries"`
+	PoolID      string `json:"poolId,omitempty"`
+}
+
 // FloatingIP represents a floating IP resource.
 type FloatingIP struct {
 	ID               string                 `json:"id"`

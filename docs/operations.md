@@ -177,6 +177,47 @@ export WORKLOAD_KUBECONFIG=/path/to/mycluster.yaml
 
 The script is idempotent — safe to re-run after agent upgrades.
 
+### Etcd backup & restore (RKE2)
+
+RKE2 ships with built-in etcd snapshots — they're enabled by default with
+the schedule `0 */5 * * *` (every 5 hours), 5-snapshot retention, stored
+on each CP node at `/var/lib/rancher/rke2/server/db/snapshots/`. Tune via
+the `RKE2ControlPlaneTemplate.spec.serverConfig.etcd.backupConfig` field
+of your ClusterClass.
+
+For ad-hoc snapshots and disaster recovery, use the helper script:
+
+```bash
+# List snapshots on a CP node (any of them)
+./scripts/rke2-etcd-snapshot.sh list ubuntu@<cp-floating-ip>
+
+# Trigger an on-demand snapshot
+./scripts/rke2-etcd-snapshot.sh create my-snap-2026-04-14 ubuntu@<cp-floating-ip>
+
+# Restore from a snapshot (DESTRUCTIVE — see script header)
+./scripts/rke2-etcd-snapshot.sh restore my-snap-2026-04-14 ubuntu@<cp-floating-ip>
+```
+
+The restore flow is intentionally a guided manual procedure:
+
+1. The script stops `rke2-server` on the chosen CP and runs
+   `rke2 server --cluster-reset --cluster-reset-restore-path=<path>`,
+   which rebuilds etcd from the snapshot and exits.
+2. `rke2-server` is restarted; the CP is now a fresh single-member
+   etcd cluster holding the snapshot's state.
+3. **You must then delete the other CP machines via CAPI**
+   (`kubectl -n fleet-default delete machine <name>`). CAPI rebuilds
+   them from the ClusterClass and they join the restored cluster as
+   new etcd members.
+
+Do not try to keep the other CP machines: their old etcd data will
+diverge from the snapshot.
+
+For S3-backed snapshots (off-instance storage), see the
+`backupConfig.s3` sub-field of the RKE2 server config — it accepts
+endpoint, bucket, region, credential secret etc. Required for any
+serious DR plan since on-disk snapshots disappear with the instance.
+
 ## Monitoring
 
 ### Prometheus metrics

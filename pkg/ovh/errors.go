@@ -52,6 +52,20 @@ func IsConflict(err error) bool {
 	return false
 }
 
+// IsAlreadyDeleting returns true if the error indicates the resource is
+// already being deleted (PENDING_DELETE) or is in a transient PENDING_UPDATE
+// state. For DELETE operations these should be treated as success since the
+// caller's intent is satisfied (or will be once the async op completes).
+func IsAlreadyDeleting(err error) bool {
+	if !IsConflict(err) {
+		return false
+	}
+
+	msg := err.Error()
+
+	return strings.Contains(msg, "PENDING_DELETE") || strings.Contains(msg, "PENDING_UPDATE")
+}
+
 // IsRetryable returns true if the error is transient and the operation should be retried.
 func IsRetryable(err error) bool {
 	if err == nil {

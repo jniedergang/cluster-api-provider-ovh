@@ -797,13 +797,14 @@ func (c *Client) GetLoadBalancer(lbID string) (*LoadBalancer, error) {
 	return &lb, nil
 }
 
-// DeleteLoadBalancer deletes a load balancer by ID.
+// DeleteLoadBalancer deletes a load balancer by ID. Treats PENDING_DELETE
+// as success since a previous request already initiated the deletion.
 func (c *Client) DeleteLoadBalancer(lbID string) error {
 	err := c.retryWithBackoff("DeleteLoadBalancer", func() error {
 		return c.api.Delete(c.regionPath("/loadbalancing/loadbalancer/%s", lbID), nil)
 	})
 	if err != nil {
-		if IsNotFound(err) {
+		if IsNotFound(err) || IsAlreadyDeleting(err) {
 			return nil
 		}
 

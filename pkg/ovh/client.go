@@ -717,6 +717,22 @@ func (c *Client) ListGateways() ([]Gateway, error) {
 	return gws, nil
 }
 
+// DeleteGateway removes the gateway. Idempotent: NotFound is treated as success.
+func (c *Client) DeleteGateway(gatewayID string) error {
+	err := c.retryWithBackoff("DeleteGateway", func() error {
+		return c.api.Delete(c.regionPath("/gateway/%s", gatewayID), nil)
+	})
+	if err != nil {
+		if IsNotFound(err) {
+			return nil
+		}
+
+		return fmt.Errorf("deleting gateway %s: %w", gatewayID, err)
+	}
+
+	return nil
+}
+
 // ExposeGateway attaches a public port to the gateway, enabling SNAT outbound
 // internet access for instances on the subnet the gateway is attached to.
 //

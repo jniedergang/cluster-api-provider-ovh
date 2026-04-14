@@ -989,13 +989,31 @@ func (r *OVHClusterReconciler) ReconcileDelete(scope *ClusterScope) (reconcile.R
 		}
 	}
 
-	// Delete floating IP if allocated
+	// Delete floating IP if allocated. Discover by name as fallback in case
+	// Status.FloatingIPID was dropped by an apiserver schema cache lag.
 	if scope.OVHCluster.Status.FloatingIPID != "" {
 		logger.Info("Deleting floating IP", "fipID", scope.OVHCluster.Status.FloatingIPID)
 
-		err := scope.OVHClient.DeleteFloatingIP(scope.OVHCluster.Status.FloatingIPID)
-		if err != nil {
+		if err := scope.OVHClient.DeleteFloatingIP(scope.OVHCluster.Status.FloatingIPID); err != nil {
 			logger.Error(err, "failed to delete floating IP")
+		}
+	}
+
+	// Delete the internet gateway we created (named capi-<cluster>-gw).
+	// Discover via ListGateways since Status.GatewayID may not have persisted.
+	gwName := "capi-" + scope.Cluster.Name + "-gw"
+
+	if gws, err := scope.OVHClient.ListGateways(); err == nil {
+		for i := range gws {
+			if gws[i].Name == gwName {
+				logger.Info("Deleting gateway", "gatewayID", gws[i].ID, "name", gwName)
+
+				if err := scope.OVHClient.DeleteGateway(gws[i].ID); err != nil {
+					logger.Error(err, "failed to delete gateway", "gatewayID", gws[i].ID)
+				}
+
+				break
+			}
 		}
 	}
 
@@ -1004,9 +1022,11 @@ func (r *OVHClusterReconciler) ReconcileDelete(scope *ClusterScope) (reconcile.R
 		if scope.OVHCluster.Status.NetworkID != "" {
 			logger.Info("Deleting private network (created by controller)", "networkID", scope.OVHCluster.Status.NetworkID)
 
-			err := scope.OVHClient.DeletePrivateNetwork(scope.OVHCluster.Status.NetworkID)
-			if err != nil {
+			if err := scope.OVHClient.DeletePrivateNetwork(scope.OVHCluster.Status.NetworkID); err != nil {
 				logger.Error(err, "failed to delete private network")
+
+				// Network may still have a gateway attached; requeue for next try.
+				return ctrl.Result{RequeueAfter: requeueTimeShort}, nil
 			}
 		}
 	}

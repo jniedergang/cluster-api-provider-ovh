@@ -155,17 +155,41 @@ Status legend: ✅ passed live | ⚠️ passed with caveat | ❌ blocked | ⏳ p
 |----|-------------------------------------------------------|--------|-----------|-------|
 | 16 | BYOI image (custom snapshot)                          | ✅      | v0.3.0    | `GetImageByName` BYOI fallback validated with 5 unit tests (exact match, UUID shortcut, BYOI fallback, public preferred, not found). Snapshot `openSUSE-Leap-15.6` confirmed present on OVH project via API. Full cluster deploy with custom image requires RKE2-prepared snapshot |
 
+### v0.4.0 features
+
+| #  | Scenario                                              | Status | Validated | Notes |
+|----|-------------------------------------------------------|--------|-----------|-------|
+| 23 | Failure domains auto-discovery                        | ✅      | v0.4.0    | `status.failureDomains: {"EU-WEST-PAR":{"controlPlane":true}}` populated automatically via `GetRegionInfo()`. EU-WEST-PAR has 1 zone — multi-AZ distribution requires a multi-AZ region (GRA11) |
+| 24 | Full E2E v0.4.0: create → Active in Rancher           | ✅      | v0.4.0    | **487s** (8m07s) with v0.4.0 controller. Failure domains populated, MHC auto-created, Rancher Active |
+| 25 | MHC self-heal on v0.4.0                               | ✅      | v0.4.0    | Worker delete → recreated in ~65s. Validated on `capi-v040-t2` |
+| 26 | Security groups via OVH API                           | ❌      | v0.4.0    | **OVH native API does not expose security groups.** Endpoints `/cloud/project/{sn}/region/{r}/network/security/group` return 404. Security groups are an OpenStack Neutron feature, not accessible via the OVH API (go-ovh). Requires an OpenStack client (gophercloud) |
+| 27 | Instance tags/metadata via OVH API                    | ❌      | v0.4.0    | **OVH native API does not expose instance metadata.** Both `GET/POST /cloud/project/{sn}/instance/{id}/metadata` return 404. Instance tags are an OpenStack Nova feature. The `metadata` field in `CreateInstanceOpts` also rejected with 400 |
+| 28 | DNS record creation                                   | ⚠️      | v0.4.0    | Code is correct but requires OVH API credentials with `/domain/*` scope. Current credentials only have `/cloud/*` scope → 403 Forbidden. The controller gracefully skips DNS when the scope is missing |
+| 29 | Cluster autoscaler annotations                        | ⚠️      | v0.4.0    | ClusterClass variables removed — CAPI MachineDeployment annotations cannot be set via ClusterClass patches. Must be set in `Cluster.spec.topology.workers.machineDeployments[].metadata.annotations`. Documented in ClusterClass comments |
+| 30 | MachinePool CRD                                       | ⚠️      | v0.4.0    | CRD type defined but no controller implemented. CRD not included in kustomize default overlay. Requires `OVHMachinePoolReconciler` to be functional |
+| 31 | E2E CI workflow                                       | ⚠️      | v0.4.0    | `.github/workflows/e2e.yml` created. Not executed — requires GitHub repository secrets (`OVH_APP_KEY`, etc.) configured by the repo admin |
+| 32 | `disableCloudController` ClusterClass variable        | ✅      | v0.3.1    | Writes `disable-cloud-controller: true` to RKE2 config on CP + worker. Validated live when deploying OpenStack CCM |
+| 33 | Gateway expose idempotence                            | ✅      | v0.3.1    | `ExposeGateway` treats 409 Conflict as success. Eliminates ~250 spurious errors/12h in controller logs |
+
 ### Summary
 
-| Category | Total | ✅ Pass | ⚠️ Caveat | ⏳ Planned |
+| Category | Total | ✅ Pass | ⚠️ Caveat | ❌ Blocked |
 |----------|-------|---------|-----------|-----------|
 | Cluster lifecycle | 10 | 10 | 0 | 0 |
-| HA and resilience | 3 | 2 | 0 | 1 |
+| HA and resilience | 3 | 2 | 0 | 0 |
 | Validation | 1 | 1 | 0 | 0 |
 | v0.3.0 API and integration | 5 | 5 | 0 | 0 |
 | Addons (CSI, CCM) | 2 | 1 | 1 | 0 |
 | BYOI | 1 | 1 | 0 | 0 |
-| **Total** | **22** | **20** | **1** | **1** |
+| v0.4.0 features | 11 | 5 | 4 | 2 |
+| **Total** | **33** | **25** | **5** | **2** |
+
+**Blocked features** (OVH API limitation):
+- #26 Security groups: OVH native API does not expose SGs (OpenStack Neutron only)
+- #27 Instance tags: OVH native API does not expose instance metadata (OpenStack Nova only)
+
+These require switching to the OpenStack API (gophercloud) or adding a secondary
+OpenStack client alongside the OVH native client. Tracked for v0.5.0.
 
 Bug fixes uncovered by these scenarios are documented in
 [CHANGELOG.md](../CHANGELOG.md) and the [TROUBLESHOOTING.md](TROUBLESHOOTING.md)

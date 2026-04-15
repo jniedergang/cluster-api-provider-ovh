@@ -167,28 +167,13 @@ spec:
             when deploying an external CCM (e.g. OpenStack CCM). When
             true, writes disable-cloud-controller: true to the RKE2
             server and agent config.
-    - name: workerMinReplicas
-      required: false
-      schema:
-        openAPIV3Schema:
-          type: integer
-          default: 1
-          description: |
-            Minimum worker replicas for the cluster autoscaler.
-            Sets the cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size
-            annotation on the MachineDeployment.
-    - name: workerMaxReplicas
-      required: false
-      schema:
-        openAPIV3Schema:
-          type: integer
-          default: 10
-          description: |
-            Maximum worker replicas for the cluster autoscaler.
-            Sets the cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size
-            annotation on the MachineDeployment.
-
   # --- Patches that wire variables into the templates ---
+  #
+  # Cluster autoscaler: NOT a ClusterClass variable — set directly on the
+  # Cluster topology's worker MachineDeployment metadata:
+  #   spec.topology.workers.machineDeployments[0].metadata.annotations:
+  #     cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size: "1"
+  #     cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size: "10"
   patches:
     - name: ovh-cluster-spec
       definitions:

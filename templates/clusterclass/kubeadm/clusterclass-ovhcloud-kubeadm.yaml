@@ -1,0 +1,337 @@
+# ClusterClass for CAPIOVH with kubeadm bootstrap.
+#
+# Install once per management cluster:
+#   kubectl apply -f clusterclass-ovhcloud-kubeadm.yaml
+#
+# Then create clusters via topology referencing class: ovhcloud-kubeadm.
+---
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: ClusterClass
+metadata:
+  name: ovhcloud-kubeadm
+spec:
+  controlPlane:
+    ref:
+      apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+      kind: KubeadmControlPlaneTemplate
+      name: ovhcloud-kubeadm-control-plane
+    machineInfrastructure:
+      ref:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1alpha2
+        kind: OVHMachineTemplate
+        name: ovhcloud-kubeadm-control-plane
+    machineHealthCheck:
+      maxUnhealthy: "34%"
+      nodeStartupTimeout: 20m
+      unhealthyConditions:
+        - type: Ready
+          status: "False"
+          timeout: 5m
+        - type: Ready
+          status: Unknown
+          timeout: 5m
+  infrastructure:
+    ref:
+      apiVersion: infrastructure.cluster.x-k8s.io/v1alpha2
+      kind: OVHClusterTemplate
+      name: ovhcloud-kubeadm-cluster
+  workers:
+    machineDeployments:
+      - class: default-worker
+        template:
+          bootstrap:
+            ref:
+              apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+              kind: KubeadmConfigTemplate
+              name: ovhcloud-kubeadm-worker
+          infrastructure:
+            ref:
+              apiVersion: infrastructure.cluster.x-k8s.io/v1alpha2
+              kind: OVHMachineTemplate
+              name: ovhcloud-kubeadm-worker
+        machineHealthCheck:
+          maxUnhealthy: "34%"
+          nodeStartupTimeout: 20m
+          unhealthyConditions:
+            - type: Ready
+              status: "False"
+              timeout: 5m
+            - type: Ready
+              status: Unknown
+              timeout: 5m
+
+  variables:
+    - name: serviceName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+    - name: region
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: "EU-WEST-PAR"
+    - name: identitySecretName
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: ovh-credentials
+    - name: subnetCIDR
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: "10.42.0.0/24"
+    - name: vlanID
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: integer
+          default: 0
+          minimum: 0
+          maximum: 4094
+    - name: lbFlavor
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: small
+          enum: [small, medium, large, xl]
+    - name: floatingNetworkID
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: ""
+    - name: cpFlavor
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: b3-16
+    - name: workerFlavor
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: b3-8
+    - name: image
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: "Ubuntu 22.04"
+    - name: sshKeyName
+      required: true
+      schema:
+        openAPIV3Schema:
+          type: string
+    - name: podCIDR
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: "10.244.0.0/16"
+    - name: serviceCIDR
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: "10.96.0.0/12"
+
+  patches:
+    - name: ovh-cluster-spec
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha2
+            kind: OVHClusterTemplate
+            matchResources:
+              infrastructureCluster: true
+          jsonPatches:
+            - op: add
+              path: /spec/template/spec/serviceName
+              valueFrom:
+                variable: serviceName
+            - op: add
+              path: /spec/template/spec/region
+              valueFrom:
+                variable: region
+            - op: add
+              path: /spec/template/spec/identitySecret/name
+              valueFrom:
+                variable: identitySecretName
+            - op: add
+              path: /spec/template/spec/identitySecret/namespace
+              valueFrom:
+                template: "{{ .builtin.cluster.namespace }}"
+            - op: add
+              path: /spec/template/spec/networkConfig/subnetCIDR
+              valueFrom:
+                variable: subnetCIDR
+            - op: add
+              path: /spec/template/spec/networkConfig/vlanID
+              valueFrom:
+                variable: vlanID
+            - op: add
+              path: /spec/template/spec/loadBalancerConfig/flavorName
+              valueFrom:
+                variable: lbFlavor
+            - op: add
+              path: /spec/template/spec/loadBalancerConfig/floatingNetworkID
+              valueFrom:
+                variable: floatingNetworkID
+            - op: add
+              path: /spec/template/spec/sshKeyName
+              valueFrom:
+                variable: sshKeyName
+
+    - name: cp-machine-flavor
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha2
+            kind: OVHMachineTemplate
+            matchResources:
+              controlPlane: true
+          jsonPatches:
+            - op: add
+              path: /spec/template/spec/flavorName
+              valueFrom:
+                variable: cpFlavor
+            - op: add
+              path: /spec/template/spec/imageName
+              valueFrom:
+                variable: image
+            - op: add
+              path: /spec/template/spec/sshKeyName
+              valueFrom:
+                variable: sshKeyName
+
+    - name: worker-machine-flavor
+      definitions:
+        - selector:
+            apiVersion: infrastructure.cluster.x-k8s.io/v1alpha2
+            kind: OVHMachineTemplate
+            matchResources:
+              machineDeploymentClass:
+                names: [default-worker]
+          jsonPatches:
+            - op: add
+              path: /spec/template/spec/flavorName
+              valueFrom:
+                variable: workerFlavor
+            - op: add
+              path: /spec/template/spec/imageName
+              valueFrom:
+                variable: image
+            - op: add
+              path: /spec/template/spec/sshKeyName
+              valueFrom:
+                variable: sshKeyName
+
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha2
+kind: OVHClusterTemplate
+metadata:
+  name: ovhcloud-kubeadm-cluster
+spec:
+  template:
+    spec:
+      serviceName: PLACEHOLDER
+      region: PLACEHOLDER
+      identitySecret:
+        namespace: PLACEHOLDER
+        name: PLACEHOLDER
+      loadBalancerConfig: {}
+      networkConfig:
+        subnetCIDR: PLACEHOLDER
+      sshKeyName: PLACEHOLDER
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha2
+kind: OVHMachineTemplate
+metadata:
+  name: ovhcloud-kubeadm-control-plane
+spec:
+  template:
+    spec:
+      flavorName: PLACEHOLDER
+      imageName: PLACEHOLDER
+      sshKeyName: PLACEHOLDER
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha2
+kind: OVHMachineTemplate
+metadata:
+  name: ovhcloud-kubeadm-worker
+spec:
+  template:
+    spec:
+      flavorName: PLACEHOLDER
+      imageName: PLACEHOLDER
+      sshKeyName: PLACEHOLDER
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta1
+kind: KubeadmControlPlaneTemplate
+metadata:
+  name: ovhcloud-kubeadm-control-plane
+spec:
+  template:
+    spec:
+      kubeadmConfigSpec:
+        clusterConfiguration:
+          apiServer:
+            extraArgs:
+              cloud-provider: external
+          controllerManager:
+            extraArgs:
+              cloud-provider: external
+        initConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+        joinConfiguration:
+          nodeRegistration:
+            kubeletExtraArgs:
+              cloud-provider: external
+        preKubeadmCommands:
+          - |
+            set -e
+            rm -f /etc/resolv.conf
+            cat > /etc/resolv.conf <<'EOF'
+            nameserver 1.1.1.1
+            nameserver 8.8.8.8
+            options edns0 trust-ad
+            EOF
+            REGION=$(cat /etc/capiovh/region 2>/dev/null)
+            UUID=$(curl -sf http://169.254.169.254/openstack/latest/meta_data.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["uuid"])' 2>/dev/null)
+            if [ -n "$REGION" ] && [ -n "$UUID" ]; then
+              mkdir -p /etc/default
+              echo "KUBELET_EXTRA_ARGS=--provider-id=ovhcloud://${REGION}/${UUID}" > /etc/default/kubelet
+            fi
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: ovhcloud-kubeadm-worker
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+      preKubeadmCommands:
+        - |
+          set -e
+          rm -f /etc/resolv.conf
+          cat > /etc/resolv.conf <<'EOF'
+          nameserver 1.1.1.1
+          nameserver 8.8.8.8
+          options edns0 trust-ad
+          EOF
+          REGION=$(cat /etc/capiovh/region 2>/dev/null)
+          UUID=$(curl -sf http://169.254.169.254/openstack/latest/meta_data.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["uuid"])' 2>/dev/null)
+          if [ -n "$REGION" ] && [ -n "$UUID" ]; then
+            mkdir -p /etc/default
+            echo "KUBELET_EXTRA_ARGS=--provider-id=ovhcloud://${REGION}/${UUID}" > /etc/default/kubelet
+          fi

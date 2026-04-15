@@ -281,6 +281,14 @@ spec:
                   - sizeGB
                   type: object
                 type: array
+              bootstrapFormat:
+                default: cloud-init
+                description: BootstrapFormat specifies the format of bootstrap data.
+                enum:
+                - cloud-init
+                - ignition
+                - raw
+                type: string
               failureDomain:
                 description: FailureDomain is the availability zone.
                 type: string

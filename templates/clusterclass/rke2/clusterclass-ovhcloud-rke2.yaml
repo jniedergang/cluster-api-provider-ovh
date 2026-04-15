@@ -167,6 +167,52 @@ spec:
             when deploying an external CCM (e.g. OpenStack CCM). When
             true, writes disable-cloud-controller: true to the RKE2
             server and agent config.
+    - name: registryMirror
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: ""
+          description: |
+            Private registry mirror endpoint (e.g. "https://registry.internal:5000").
+            When set, writes /etc/rancher/rke2/registries.yaml on all nodes
+            to redirect container image pulls through this mirror.
+    - name: nodeDrainTimeout
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: "5m"
+          description: |
+            Maximum time to wait for node drain during rolling updates.
+            Applied to both CP and worker machines.
+    - name: etcdS3Endpoint
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: ""
+          description: |
+            S3-compatible endpoint for automated etcd backups (e.g.
+            "s3.gra.io.cloud.ovh.net"). When set along with etcdS3Bucket,
+            enables RKE2 native etcd-s3 backup. Credentials must be in
+            a Secret referenced by etcdS3CredentialsSecret.
+    - name: etcdS3Bucket
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: ""
+    - name: etcdS3CredentialsSecret
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: string
+          default: ""
+          description: |
+            Name of a Secret in the cluster namespace containing
+            aws-access-key-id and aws-secret-access-key for S3 backup.
+
   # --- Patches that wire variables into the templates ---
   #
   # Cluster autoscaler: NOT a ClusterClass variable — set directly on the
@@ -291,6 +337,12 @@ spec:
                     {{- if .disableCloudController }},
                     {"path":"/etc/rancher/rke2/config.yaml.d/99-disable-ccm.yaml","owner":"root:root","permissions":"0644","content":"disable-cloud-controller: true\n"}
                     {{- end }}
+                    {{- if .registryMirror }},
+                    {"path":"/etc/rancher/rke2/registries.yaml","owner":"root:root","permissions":"0644","content":{{ printf "mirrors:\n  docker.io:\n    endpoint:\n      - %s\n  \"*\":\n    endpoint:\n      - %s\n" .registryMirror .registryMirror | quote }}}
+                    {{- end }}
+                    {{- if .etcdS3Endpoint }},
+                    {"path":"/etc/rancher/rke2/config.yaml.d/50-etcd-s3.yaml","owner":"root:root","permissions":"0644","content":{{ printf "etcd-s3: true\netcd-s3-endpoint: %s\netcd-s3-bucket: %s\netcd-snapshot-schedule-cron: \"0 */6 * * *\"\netcd-snapshot-retention: 5\n" .etcdS3Endpoint .etcdS3Bucket | quote }}}
+                    {{- end }}
                   ]
 
     - name: worker-region-file
@@ -306,7 +358,7 @@ spec:
               path: /spec/template/spec/files
               valueFrom:
                 template: |
-                  [{"path":"/etc/capiovh/region","owner":"root:root","permissions":"0644","content":{{ .region | quote }}}{{- if .disableCloudController }},{"path":"/etc/rancher/rke2/config.yaml.d/99-disable-ccm.yaml","owner":"root:root","permissions":"0644","content":"disable-cloud-controller: true\n"}{{- end }}]
+                  [{"path":"/etc/capiovh/region","owner":"root:root","permissions":"0644","content":{{ .region | quote }}}{{- if .disableCloudController }},{"path":"/etc/rancher/rke2/config.yaml.d/99-disable-ccm.yaml","owner":"root:root","permissions":"0644","content":"disable-cloud-controller: true\n"}{{- end }}{{- if .registryMirror }},{"path":"/etc/rancher/rke2/registries.yaml","owner":"root:root","permissions":"0644","content":{{ printf "mirrors:\n  docker.io:\n    endpoint:\n      - %s\n  \"*\":\n    endpoint:\n      - %s\n" .registryMirror .registryMirror | quote }}}{{- end }}]
 
 ---
 # Templates referenced by the ClusterClass above.

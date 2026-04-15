@@ -108,6 +108,12 @@ type OVHMachineSpec struct {
 	// Tags is metadata tags to apply to the instance.
 	// +optional
 	Tags map[string]string `json:"tags,omitempty"`
+
+	// BootstrapFormat specifies the format of bootstrap data.
+	// +optional
+	// +kubebuilder:validation:Enum:="cloud-init";"ignition";"raw"
+	// +kubebuilder:default:="cloud-init"
+	BootstrapFormat string `json:"bootstrapFormat,omitempty"`
 }
 
 // OVHMachineStatus defines the observed state of OVHMachine.

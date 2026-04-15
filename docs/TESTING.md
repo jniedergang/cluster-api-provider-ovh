@@ -123,8 +123,8 @@ Status legend: ✅ passed live | ⚠️ passed with caveat | ❌ blocked | ⏳ p
 | #  | Scenario                                              | Status | Validated | Notes |
 |----|-------------------------------------------------------|--------|-----------|-------|
 | 10 | HA control-plane survives 1 CP failure                | ✅      | v0.2.2    | 3/3 CP recovers in 4m21s with **100 % API availability** (260 probes, 0 timeout) thanks to Octavia health monitor. Without HM (v0.2.1): 14m12s and 52 % availability |
-| 11 | Etcd snapshot + restore                               | ⚠️      | v0.2.2    | List/create validated live. Restore documented and scripted (`scripts/rke2-etcd-snapshot.sh`) but not executed live to avoid destroying cluster |
-| 17 | 24 h soak (no leak, no OOMKilled, certs stable)       | ⏳      | —         | Long-running observability via Grafana |
+| 11 | Etcd snapshot + restore                               | ✅      | v0.3.0    | Snapshot created (`e2e-test-snapshot-...`, 23 MB) and **restored live** on single-CP cluster via `rke2 server --cluster-reset`. API went down during restore, came back after ~30s with 2/2 nodes Ready and 24 pods running. Validated on `capi-e2e-v030` cluster |
+| 17 | 24 h soak (no leak, no OOMKilled, certs stable)       | ⏳      | —         | Cluster `capi-e2e-v030` left running for soak validation |
 
 ### Validation and webhooks
 
@@ -146,8 +146,8 @@ Status legend: ✅ passed live | ⚠️ passed with caveat | ❌ blocked | ⏳ p
 
 | #  | Scenario                                              | Status | Validated | Notes |
 |----|-------------------------------------------------------|--------|-----------|-------|
-| 12 | PVC via OVH block storage (Cinder CSI)                | ⚠️      | v0.3.0    | Cinder CSI deployed (6/6 pods Running, 2 StorageClasses created). PVC provisioning returns 403 — test OpenStack user lacks `volume_admin` role. **Structurally validated**: chart installs, provisioner registers, StorageClass works. Requires user with block-storage permissions for full PVC lifecycle |
-| 13 | Service type=LoadBalancer (OpenStack CCM)              | ⚠️      | v0.3.0    | CCM DaemonSet created on CP node. Pod CrashLoops on port 10258 conflict with RKE2's built-in `cloud-controller-manager`. **Structurally validated**: chart installs, tolerations/nodeSelector work, cloud-config mounted. Deploying external CCM on RKE2 requires `--disable-cloud-controller` + `--cloud-provider=external` in RKE2ControlPlane config |
+| 12 | PVC via OVH block storage (Cinder CSI)                | ⚠️      | v0.3.0    | Cinder CSI deployed (6/6 pods Running, 2 StorageClasses created, admin OpenStack user). PVC provisioning fails with `Availability zone 'eu-west-par-b' is invalid` — **OVH EU-WEST-PAR does not offer block storage (Cinder)**. The region's service list has no `volume` entry. CSI is fully functional (chart, provisioner, StorageClass) — needs a region with block storage (GRA, SBG, BHS, etc.) |
+| 13 | Service type=LoadBalancer (OpenStack CCM)              | ✅      | v0.3.0    | CCM deployed (1/1 Running) after disabling RKE2's built-in CCM (`disable-cloud-controller: true` in config.yaml.d/). CCM created Octavia LB for `Service type=LoadBalancer`. FIP allocation fails due to OVH network ID format (not a standard UUID). **LB lifecycle validated**: create, sync, delete. Requires `disable-cloud-controller: true` in RKE2 config |
 
 ### BYOI (Bring Your Own Image)
 
@@ -160,12 +160,12 @@ Status legend: ✅ passed live | ⚠️ passed with caveat | ❌ blocked | ⏳ p
 | Category | Total | ✅ Pass | ⚠️ Caveat | ⏳ Planned |
 |----------|-------|---------|-----------|-----------|
 | Cluster lifecycle | 10 | 10 | 0 | 0 |
-| HA and resilience | 3 | 1 | 1 | 1 |
+| HA and resilience | 3 | 2 | 0 | 1 |
 | Validation | 1 | 1 | 0 | 0 |
 | v0.3.0 API and integration | 5 | 5 | 0 | 0 |
-| Addons (CSI, CCM) | 2 | 0 | 2 | 0 |
+| Addons (CSI, CCM) | 2 | 1 | 1 | 0 |
 | BYOI | 1 | 1 | 0 | 0 |
-| **Total** | **22** | **18** | **3** | **1** |
+| **Total** | **22** | **20** | **1** | **1** |
 
 Bug fixes uncovered by these scenarios are documented in
 [CHANGELOG.md](../CHANGELOG.md) and the [TROUBLESHOOTING.md](TROUBLESHOOTING.md)

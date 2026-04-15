@@ -746,6 +746,10 @@ func (c *Client) ExposeGateway(gatewayID string) error {
 		return c.api.Post(c.regionPath("/gateway/%s/expose", gatewayID), nil, nil)
 	})
 	if err != nil {
+		if IsConflict(err) {
+			return nil
+		}
+
 		return fmt.Errorf("exposing gateway %s: %w", gatewayID, err)
 	}
 

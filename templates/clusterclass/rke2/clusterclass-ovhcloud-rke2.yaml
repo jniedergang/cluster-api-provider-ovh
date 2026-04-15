@@ -156,6 +156,17 @@ spec:
             ConfigMap cattle-system/serverca is auto-created on the
             workload cluster. The agent deployment still needs a one-time
             patch to mount it — see scripts/import-to-rancher.sh.
+    - name: disableCloudController
+      required: false
+      schema:
+        openAPIV3Schema:
+          type: boolean
+          default: false
+          description: |
+            Disable RKE2's built-in cloud-controller-manager. Required
+            when deploying an external CCM (e.g. OpenStack CCM). When
+            true, writes disable-cloud-controller: true to the RKE2
+            server and agent config.
 
   # --- Patches that wire variables into the templates ---
   patches:
@@ -272,6 +283,9 @@ spec:
                     {{- if .rancherServerCA }},
                     {"path":"/var/lib/rancher/rke2/server/manifests/capiovh-rancher-serverca.yaml","owner":"root:root","permissions":"0640","content":{{ printf "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: cattle-system\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: serverca\n  namespace: cattle-system\ndata:\n  serverca: |\n%s" (.rancherServerCA | indent 4) | quote }}}
                     {{- end }}
+                    {{- if .disableCloudController }},
+                    {"path":"/etc/rancher/rke2/config.yaml.d/99-disable-ccm.yaml","owner":"root:root","permissions":"0644","content":"disable-cloud-controller: true\n"}
+                    {{- end }}
                   ]
 
     - name: worker-region-file
@@ -287,7 +301,7 @@ spec:
               path: /spec/template/spec/files
               valueFrom:
                 template: |
-                  [{"path":"/etc/capiovh/region","owner":"root:root","permissions":"0644","content":{{ .region | quote }}}]
+                  [{"path":"/etc/capiovh/region","owner":"root:root","permissions":"0644","content":{{ .region | quote }}}{{- if .disableCloudController }},{"path":"/etc/rancher/rke2/config.yaml.d/99-disable-ccm.yaml","owner":"root:root","permissions":"0644","content":"disable-cloud-controller: true\n"}{{- end }}]
 
 ---
 # Templates referenced by the ClusterClass above.

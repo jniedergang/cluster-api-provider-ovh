@@ -16,6 +16,11 @@ resources:
     memory: 64Mi
 
 # Validating webhooks for OVHCluster and OVHMachine.
+# Note: the chart CRDs use conversion strategy "None" (no webhook).
+# This is correct for normal use since v1alpha1 and v1alpha2 schemas
+# are structurally identical. For deployments needing full conversion
+# webhook support (e.g. migrating v1alpha1 OVHClusters with Protocol: HTTP),
+# use kustomize instead: make deploy IMG=<image>
 webhooks:
   enabled: false
   # cert-manager Certificate secretName for webhook TLS.

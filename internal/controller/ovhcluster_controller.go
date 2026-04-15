@@ -301,10 +301,23 @@ func (r *OVHClusterReconciler) ReconcileNormal(scope *ClusterScope) (reconcile.R
 		return ctrl.Result{RequeueAfter: requeueTimeShort}, err
 	}
 
-	// Step 3: Reconcile load balancer
+	// Step 3: Reconcile failure domains (auto-discover AZs)
+	r.reconcileFailureDomains(scope)
+
+	// Step 4: Reconcile security groups
+	if err := r.reconcileSecurityGroups(scope); err != nil {
+		logger.Info("Warning: failed to reconcile security groups", "error", err)
+	}
+
+	// Step 5: Reconcile load balancer
 	result, err := r.reconcileLoadBalancer(scope)
 	if err != nil || result.RequeueAfter > 0 {
 		return result, err
+	}
+
+	// Step 6: Reconcile DNS record
+	if err := r.reconcileDNS(scope); err != nil {
+		logger.Info("Warning: failed to reconcile DNS", "error", err)
 	}
 
 	// All infrastructure ready
@@ -315,6 +328,157 @@ func (r *OVHClusterReconciler) ReconcileNormal(scope *ClusterScope) (reconcile.R
 
 	// Requeue periodically to reconcile LB members
 	return ctrl.Result{RequeueAfter: requeueTimeLong}, nil
+}
+
+// reconcileFailureDomains discovers availability zones from the OVH region
+// and populates the OVHCluster status.FailureDomains for CAPI to distribute
+// machines across zones.
+func (r *OVHClusterReconciler) reconcileFailureDomains(scope *ClusterScope) {
+	if len(scope.OVHCluster.Status.FailureDomains) > 0 {
+		return
+	}
+
+	logger := scope.Logger
+
+	info, err := scope.OVHClient.GetRegionInfo()
+	if err != nil {
+		logger.Info("Warning: cannot discover failure domains", "error", err)
+		return
+	}
+
+	fds := clusterv1.FailureDomains{}
+
+	if len(scope.OVHCluster.Spec.FailureDomains) > 0 {
+		for _, fd := range scope.OVHCluster.Spec.FailureDomains {
+			fds[fd] = clusterv1.FailureDomainSpec{ControlPlane: true}
+		}
+	} else {
+		for _, svc := range info.Services {
+			if svc.Name == "instance" && svc.Status == "UP" {
+				fds[scope.OVHCluster.Spec.Region] = clusterv1.FailureDomainSpec{ControlPlane: true}
+			}
+		}
+	}
+
+	if len(fds) > 0 {
+		scope.OVHCluster.Status.FailureDomains = fds
+		logger.Info("Discovered failure domains", "count", len(fds))
+	}
+}
+
+// reconcileSecurityGroups creates security groups defined in the spec and
+// stores their IDs in the status for machine controllers to reference.
+func (r *OVHClusterReconciler) reconcileSecurityGroups(scope *ClusterScope) error {
+	if len(scope.OVHCluster.Spec.SecurityGroups) == 0 {
+		return nil
+	}
+
+	logger := scope.Logger
+
+	if scope.OVHCluster.Status.SecurityGroupIDs == nil {
+		scope.OVHCluster.Status.SecurityGroupIDs = make(map[string]string)
+	}
+
+	existing, err := scope.OVHClient.ListSecurityGroups()
+	if err != nil {
+		return fmt.Errorf("listing security groups: %w", err)
+	}
+
+	existingByName := make(map[string]string)
+	for _, sg := range existing {
+		existingByName[sg.Name] = sg.ID
+	}
+
+	for _, sgSpec := range scope.OVHCluster.Spec.SecurityGroups {
+		sgName := "capi-" + scope.Cluster.Name + "-" + sgSpec.Name
+
+		if id, ok := scope.OVHCluster.Status.SecurityGroupIDs[sgSpec.Name]; ok && id != "" {
+			continue
+		}
+
+		if id, ok := existingByName[sgName]; ok {
+			scope.OVHCluster.Status.SecurityGroupIDs[sgSpec.Name] = id
+			logger.Info("Found existing security group", "name", sgName, "id", id)
+
+			continue
+		}
+
+		sg, cerr := scope.OVHClient.CreateSecurityGroup(ovhclient.CreateSecurityGroupOpts{
+			Name:        sgName,
+			Description: "CAPIOVH managed for cluster " + scope.Cluster.Name,
+		})
+		if cerr != nil {
+			return fmt.Errorf("creating security group %q: %w", sgName, cerr)
+		}
+
+		scope.OVHCluster.Status.SecurityGroupIDs[sgSpec.Name] = sg.ID
+		logger.Info("Created security group", "name", sgName, "id", sg.ID)
+
+		for _, rule := range sgSpec.Rules {
+			_, rerr := scope.OVHClient.CreateSecurityGroupRule(sg.ID, ovhclient.CreateSecurityGroupRuleOpts{
+				Direction:      rule.Direction,
+				Protocol:       rule.Protocol,
+				PortRangeMin:   rule.PortRangeMin,
+				PortRangeMax:   rule.PortRangeMax,
+				RemoteIPPrefix: rule.RemoteIPPrefix,
+				EtherType:      rule.EtherType,
+			})
+			if rerr != nil {
+				logger.Info("Warning: failed to create security group rule", "sg", sgName, "error", rerr)
+			}
+		}
+	}
+
+	return nil
+}
+
+// reconcileDNS creates or updates a DNS A record pointing to the control
+// plane endpoint IP. Requires OVH API credentials with /domain/* scope.
+func (r *OVHClusterReconciler) reconcileDNS(scope *ClusterScope) error {
+	if scope.OVHCluster.Spec.DNSConfig == nil {
+		return nil
+	}
+
+	if scope.OVHCluster.Status.DNSRecordID != 0 {
+		return nil
+	}
+
+	host := scope.OVHCluster.Spec.ControlPlaneEndpoint.Host
+	if host == "" {
+		return nil
+	}
+
+	logger := scope.Logger
+	dns := scope.OVHCluster.Spec.DNSConfig
+
+	recordName := dns.RecordName
+	if recordName == "" {
+		recordName = scope.Cluster.Name
+	}
+
+	ttl := dns.TTL
+	if ttl == 0 {
+		ttl = 300
+	}
+
+	record, err := scope.OVHClient.CreateDNSRecord(dns.ZoneName, ovhclient.CreateDNSRecordOpts{
+		FieldType: "A",
+		SubDomain: recordName,
+		Target:    host,
+		TTL:       ttl,
+	})
+	if err != nil {
+		return fmt.Errorf("creating DNS record: %w", err)
+	}
+
+	scope.OVHCluster.Status.DNSRecordID = record.ID
+	logger.Info("Created DNS record", "fqdn", recordName+"."+dns.ZoneName, "target", host, "id", record.ID)
+
+	if err := scope.OVHClient.RefreshDNSZone(dns.ZoneName); err != nil {
+		logger.Info("Warning: DNS zone refresh failed", "error", err)
+	}
+
+	return nil
 }
 
 // reconcileCredentials validates the OVH API connection.
@@ -936,6 +1100,25 @@ func (r *OVHClusterReconciler) ReconcileDelete(scope *ClusterScope) (reconcile.R
 
 	logger := scope.Logger
 	logger.Info("Reconciling OVHCluster deletion ...")
+
+	// Clean up DNS record
+	if scope.OVHCluster.Status.DNSRecordID != 0 && scope.OVHCluster.Spec.DNSConfig != nil {
+		if err := scope.OVHClient.DeleteDNSRecord(scope.OVHCluster.Spec.DNSConfig.ZoneName, scope.OVHCluster.Status.DNSRecordID); err != nil {
+			logger.Info("Warning: failed to delete DNS record", "error", err)
+		} else {
+			_ = scope.OVHClient.RefreshDNSZone(scope.OVHCluster.Spec.DNSConfig.ZoneName)
+			scope.OVHCluster.Status.DNSRecordID = 0
+		}
+	}
+
+	// Clean up security groups
+	for name, id := range scope.OVHCluster.Status.SecurityGroupIDs {
+		if err := scope.OVHClient.DeleteSecurityGroup(id); err != nil {
+			logger.Info("Warning: failed to delete security group", "name", name, "error", err)
+		} else {
+			delete(scope.OVHCluster.Status.SecurityGroupIDs, name)
+		}
+	}
 
 	// Capture all FIPs associated with our LB BEFORE we delete the LB:
 	// once the LB is gone, the FIPs are detached and we lose the reverse link.

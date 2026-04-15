@@ -64,6 +64,8 @@ type CreateInstanceOpts struct {
 	UserData       string            `json:"userData,omitempty"`
 	Networks       []InstanceNetwork `json:"networks,omitempty"`
 	MonthlyBilling bool              `json:"monthlyBilling,omitempty"`
+	GroupID        string            `json:"groupId,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
 // InstanceNetwork describes a network to attach during instance creation.
@@ -429,4 +431,67 @@ type Me struct {
 	FirstName string `json:"firstname"`
 	Name      string `json:"name"`
 	Email     string `json:"email"`
+}
+
+// RegionInfo describes an OVH region and its available services / AZs.
+type RegionInfo struct {
+	Name     string          `json:"name"`
+	Services []RegionService `json:"services,omitempty"`
+}
+
+// RegionService describes a service available in a region.
+type RegionService struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// SecurityGroup represents an OVH/OpenStack security group.
+type SecurityGroup struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// SecurityGroupRule represents a rule in a security group.
+type SecurityGroupRule struct {
+	ID             string `json:"id"`
+	Direction      string `json:"direction"`
+	Protocol       string `json:"protocol,omitempty"`
+	PortRangeMin   *int32 `json:"portRangeMin,omitempty"`
+	PortRangeMax   *int32 `json:"portRangeMax,omitempty"`
+	RemoteIPPrefix string `json:"remoteIPPrefix,omitempty"`
+	EtherType      string `json:"etherType,omitempty"`
+}
+
+// CreateSecurityGroupOpts are the parameters for creating a security group.
+type CreateSecurityGroupOpts struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// CreateSecurityGroupRuleOpts are the parameters for creating a security group rule.
+type CreateSecurityGroupRuleOpts struct {
+	Direction      string `json:"direction"`
+	Protocol       string `json:"protocol,omitempty"`
+	PortRangeMin   *int32 `json:"portRangeMin,omitempty"`
+	PortRangeMax   *int32 `json:"portRangeMax,omitempty"`
+	RemoteIPPrefix string `json:"remoteIPPrefix,omitempty"`
+	EtherType      string `json:"etherType,omitempty"`
+}
+
+// DNSRecord represents an OVH DNS zone record.
+type DNSRecord struct {
+	ID        int64  `json:"id"`
+	FieldType string `json:"fieldType"`
+	SubDomain string `json:"subDomain"`
+	Target    string `json:"target"`
+	TTL       int    `json:"ttl"`
+	Zone      string `json:"zone"`
+}
+
+// CreateDNSRecordOpts are the parameters for creating a DNS record.
+type CreateDNSRecordOpts struct {
+	FieldType string `json:"fieldType"`
+	SubDomain string `json:"subDomain"`
+	Target    string `json:"target"`
+	TTL       int    `json:"ttl,omitempty"`
 }

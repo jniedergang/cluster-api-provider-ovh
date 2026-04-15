@@ -78,8 +78,21 @@ func (src *OVHCluster) ConvertTo(dstRaw conversion.Hub) error {
 		dst.Spec.NetworkConfig = nc
 	}
 
-	// Status — identical fields, direct copy.
-	dst.Status = infrav1alpha2.OVHClusterStatus(src.Status)
+	// Status — copy common fields (v1alpha2 has extra fields that v1alpha1 doesn't).
+	dst.Status.Ready = src.Status.Ready
+	dst.Status.FailureReason = src.Status.FailureReason
+	dst.Status.FailureMessage = src.Status.FailureMessage
+	dst.Status.Conditions = src.Status.Conditions
+	dst.Status.NetworkID = src.Status.NetworkID
+	dst.Status.SubnetID = src.Status.SubnetID
+	dst.Status.LoadBalancerID = src.Status.LoadBalancerID
+	dst.Status.ListenerID = src.Status.ListenerID
+	dst.Status.PoolID = src.Status.PoolID
+	dst.Status.FloatingIPID = src.Status.FloatingIPID
+	dst.Status.GatewayID = src.Status.GatewayID
+	dst.Status.GatewayExposed = src.Status.GatewayExposed
+	dst.Status.RegisterListenerID = src.Status.RegisterListenerID
+	dst.Status.RegisterPoolID = src.Status.RegisterPoolID
 
 	return nil
 }
@@ -130,8 +143,21 @@ func (dst *OVHCluster) ConvertFrom(srcRaw conversion.Hub) error {
 		dst.Spec.NetworkConfig = nc
 	}
 
-	// Status
-	dst.Status = OVHClusterStatus(src.Status)
+	// Status — copy common fields
+	dst.Status.Ready = src.Status.Ready
+	dst.Status.FailureReason = src.Status.FailureReason
+	dst.Status.FailureMessage = src.Status.FailureMessage
+	dst.Status.Conditions = src.Status.Conditions
+	dst.Status.NetworkID = src.Status.NetworkID
+	dst.Status.SubnetID = src.Status.SubnetID
+	dst.Status.LoadBalancerID = src.Status.LoadBalancerID
+	dst.Status.ListenerID = src.Status.ListenerID
+	dst.Status.PoolID = src.Status.PoolID
+	dst.Status.FloatingIPID = src.Status.FloatingIPID
+	dst.Status.GatewayID = src.Status.GatewayID
+	dst.Status.GatewayExposed = src.Status.GatewayExposed
+	dst.Status.RegisterListenerID = src.Status.RegisterListenerID
+	dst.Status.RegisterPoolID = src.Status.RegisterPoolID
 
 	return nil
 }

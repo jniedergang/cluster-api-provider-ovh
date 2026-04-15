@@ -1223,3 +1223,139 @@ func (c *Client) DeleteFloatingIP(fipID string) error {
 
 	return nil
 }
+
+// --- Region / Availability Zone Operations ---
+
+// GetRegionInfo returns the region details including available services.
+func (c *Client) GetRegionInfo() (*RegionInfo, error) {
+	var info RegionInfo
+
+	err := c.retryWithBackoff("GetRegionInfo", func() error {
+		return c.api.Get(c.projectPath("/region/%s", c.region), &info)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("getting region info for %s: %w", c.region, err)
+	}
+
+	return &info, nil
+}
+
+// --- Security Group Operations ---
+
+// ListSecurityGroups returns all security groups in the region.
+func (c *Client) ListSecurityGroups() ([]SecurityGroup, error) {
+	var groups []SecurityGroup
+
+	err := c.retryWithBackoff("ListSecurityGroups", func() error {
+		return c.api.Get(c.regionPath("/network/security/group"), &groups)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing security groups: %w", err)
+	}
+
+	return groups, nil
+}
+
+// CreateSecurityGroup creates a new security group.
+func (c *Client) CreateSecurityGroup(opts CreateSecurityGroupOpts) (*SecurityGroup, error) {
+	var sg SecurityGroup
+
+	err := c.retryWithBackoff("CreateSecurityGroup", func() error {
+		return c.api.Post(c.regionPath("/network/security/group"), opts, &sg)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating security group %q: %w", opts.Name, err)
+	}
+
+	return &sg, nil
+}
+
+// DeleteSecurityGroup deletes a security group by ID.
+func (c *Client) DeleteSecurityGroup(sgID string) error {
+	err := c.retryWithBackoff("DeleteSecurityGroup", func() error {
+		return c.api.Delete(c.regionPath("/network/security/group/%s", sgID), nil)
+	})
+	if err != nil {
+		if IsNotFound(err) {
+			return nil
+		}
+
+		return fmt.Errorf("deleting security group %s: %w", sgID, err)
+	}
+
+	return nil
+}
+
+// CreateSecurityGroupRule creates a rule in a security group.
+func (c *Client) CreateSecurityGroupRule(sgID string, opts CreateSecurityGroupRuleOpts) (*SecurityGroupRule, error) {
+	var rule SecurityGroupRule
+
+	err := c.retryWithBackoff("CreateSecurityGroupRule", func() error {
+		return c.api.Post(c.regionPath("/network/security/group/%s/rule", sgID), opts, &rule)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating security group rule in %s: %w", sgID, err)
+	}
+
+	return &rule, nil
+}
+
+// ListSecurityGroupRules returns all rules in a security group.
+func (c *Client) ListSecurityGroupRules(sgID string) ([]SecurityGroupRule, error) {
+	var rules []SecurityGroupRule
+
+	err := c.retryWithBackoff("ListSecurityGroupRules", func() error {
+		return c.api.Get(c.regionPath("/network/security/group/%s/rule", sgID), &rules)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing security group rules for %s: %w", sgID, err)
+	}
+
+	return rules, nil
+}
+
+// --- DNS Operations ---
+// Note: DNS uses /domain/ paths, not /cloud/project/ paths.
+// The OVH API credentials must have /domain/* scope.
+
+// CreateDNSRecord creates an A record in an OVH DNS zone.
+func (c *Client) CreateDNSRecord(zone string, opts CreateDNSRecordOpts) (*DNSRecord, error) {
+	var record DNSRecord
+
+	err := c.retryWithBackoff("CreateDNSRecord", func() error {
+		return c.api.Post(fmt.Sprintf("/domain/zone/%s/record", zone), opts, &record)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating DNS record %s.%s: %w", opts.SubDomain, zone, err)
+	}
+
+	return &record, nil
+}
+
+// DeleteDNSRecord deletes a DNS record by ID.
+func (c *Client) DeleteDNSRecord(zone string, recordID int64) error {
+	err := c.retryWithBackoff("DeleteDNSRecord", func() error {
+		return c.api.Delete(fmt.Sprintf("/domain/zone/%s/record/%d", zone, recordID), nil)
+	})
+	if err != nil {
+		if IsNotFound(err) {
+			return nil
+		}
+
+		return fmt.Errorf("deleting DNS record %d in zone %s: %w", recordID, zone, err)
+	}
+
+	return nil
+}
+
+// RefreshDNSZone triggers a zone refresh (SOA serial bump) on OVH DNS.
+func (c *Client) RefreshDNSZone(zone string) error {
+	err := c.retryWithBackoff("RefreshDNSZone", func() error {
+		return c.api.Post(fmt.Sprintf("/domain/zone/%s/refresh", zone), nil, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("refreshing DNS zone %s: %w", zone, err)
+	}
+
+	return nil
+}

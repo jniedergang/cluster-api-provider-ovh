@@ -152,6 +152,60 @@ type OVHNetworkConfig struct {
 	DNSServers []string `json:"dnsServers,omitempty"`
 }
 
+// OVHSecurityGroup defines a security group to create and apply to cluster instances.
+type OVHSecurityGroup struct {
+	// Name is the security group name.
+	Name string `json:"name"`
+
+	// Rules is the list of security group rules.
+	// +optional
+	Rules []OVHSecurityRule `json:"rules,omitempty"`
+}
+
+// OVHSecurityRule defines a single firewall rule in a security group.
+type OVHSecurityRule struct {
+	// Direction is "ingress" or "egress".
+	// +kubebuilder:validation:Enum:=ingress;egress
+	Direction string `json:"direction"`
+
+	// Protocol is tcp, udp, icmp, or empty for any.
+	// +optional
+	Protocol string `json:"protocol,omitempty"`
+
+	// PortRangeMin is the start of the port range.
+	// +optional
+	PortRangeMin *int32 `json:"portRangeMin,omitempty"`
+
+	// PortRangeMax is the end of the port range.
+	// +optional
+	PortRangeMax *int32 `json:"portRangeMax,omitempty"`
+
+	// RemoteIPPrefix is the CIDR for allowed source/dest (e.g. "0.0.0.0/0").
+	// +optional
+	RemoteIPPrefix string `json:"remoteIPPrefix,omitempty"`
+
+	// EtherType is "IPv4" or "IPv6".
+	// +optional
+	// +kubebuilder:default:=IPv4
+	EtherType string `json:"etherType,omitempty"`
+}
+
+// OVHDNSConfig configures automatic DNS record management.
+type OVHDNSConfig struct {
+	// ZoneName is the OVH DNS zone (e.g. "example.com").
+	ZoneName string `json:"zoneName"`
+
+	// RecordName is the DNS A record name (e.g. "k8s-api" → k8s-api.example.com).
+	// Defaults to the cluster name if empty.
+	// +optional
+	RecordName string `json:"recordName,omitempty"`
+
+	// TTL is the DNS record TTL in seconds.
+	// +optional
+	// +kubebuilder:default:=300
+	TTL int `json:"ttl,omitempty"`
+}
+
 // OVHClusterSpec defines the desired state of OVHCluster.
 type OVHClusterSpec struct {
 	// ServiceName is the OVH Public Cloud project ID.
@@ -178,6 +232,25 @@ type OVHClusterSpec struct {
 	// SSHKeyName is the name of the SSH key registered in OVH to inject into instances.
 	// +optional
 	SSHKeyName string `json:"sshKeyName,omitempty"`
+
+	// FailureDomains is a list of availability zones to use.
+	// If empty, the controller auto-discovers zones from the OVH API.
+	// +optional
+	FailureDomains []string `json:"failureDomains,omitempty"`
+
+	// SecurityGroups defines security groups to create and apply to cluster instances.
+	// +optional
+	SecurityGroups []OVHSecurityGroup `json:"securityGroups,omitempty"`
+
+	// DefaultTags are metadata tags applied to all instances in the cluster.
+	// Machine-level tags override cluster-level tags with the same key.
+	// +optional
+	DefaultTags map[string]string `json:"defaultTags,omitempty"`
+
+	// DNSConfig configures automatic DNS record management for the control plane endpoint.
+	// Requires OVH API credentials with /domain/* scope.
+	// +optional
+	DNSConfig *OVHDNSConfig `json:"dnsConfig,omitempty"`
 }
 
 // OVHClusterStatus defines the observed state of OVHCluster.
@@ -244,6 +317,18 @@ type OVHClusterStatus struct {
 	// port on the load balancer.
 	// +optional
 	RegisterPoolID string `json:"registerPoolID,omitempty"`
+
+	// FailureDomains reports the availability zones discovered in the region.
+	// +optional
+	FailureDomains clusterv1.FailureDomains `json:"failureDomains,omitempty"`
+
+	// SecurityGroupIDs maps security group names to their OVH IDs.
+	// +optional
+	SecurityGroupIDs map[string]string `json:"securityGroupIDs,omitempty"`
+
+	// DNSRecordID is the ID of the DNS A record created for the control plane endpoint.
+	// +optional
+	DNSRecordID int64 `json:"dnsRecordID,omitempty"`
 }
 
 //+kubebuilder:object:root=true

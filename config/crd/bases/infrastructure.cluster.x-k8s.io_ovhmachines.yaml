@@ -301,10 +301,22 @@ spec:
                 description: RootDiskSize is the root disk size in GB. 0 uses the
                   flavor default.
                 type: integer
+              securityGroupNames:
+                description: |-
+                  SecurityGroupNames lists security group names to apply to this instance.
+                  Must match names defined in the parent OVHCluster.spec.securityGroups.
+                items:
+                  type: string
+                type: array
               sshKeyName:
                 description: SSHKeyName overrides the cluster-level SSH key for this
                   machine.
                 type: string
+              tags:
+                additionalProperties:
+                  type: string
+                description: Tags is metadata tags to apply to the instance.
+                type: object
             required:
             - flavorName
             - imageName

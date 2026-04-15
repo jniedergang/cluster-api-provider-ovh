@@ -1,0 +1,116 @@
+name: e2e
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "OVH region to test in"
+        required: false
+        default: "GRA9"
+        type: string
+  schedule:
+    - cron: "0 3 * * 1"  # weekly Monday 3 AM UTC
+
+concurrency:
+  group: e2e-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: cluster-api-provider-ovhcloud
+  ORG: ${{ github.repository_owner }}
+  OVH_REGION: ${{ inputs.region || 'GRA9' }}
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: e2e-lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+
+      - name: Create kind cluster
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+        with:
+          cluster_name: capiovh-e2e
+
+      - name: Install CAPI + RKE2 providers
+        run: |
+          curl -sL https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.10.3/clusterctl-linux-amd64 -o /usr/local/bin/clusterctl
+          chmod +x /usr/local/bin/clusterctl
+          clusterctl init \
+            --bootstrap rke2 \
+            --control-plane rke2
+
+      - name: Build and load CAPIOVH image
+        run: |
+          make docker-build IMG=${{ env.REGISTRY }}/${{ env.ORG }}/${{ env.IMAGE_NAME }}:e2e
+          kind load docker-image ${{ env.REGISTRY }}/${{ env.ORG }}/${{ env.IMAGE_NAME }}:e2e --name capiovh-e2e
+
+      - name: Deploy CAPIOVH
+        run: |
+          make deploy IMG=${{ env.REGISTRY }}/${{ env.ORG }}/${{ env.IMAGE_NAME }}:e2e
+          kubectl wait --for=condition=available --timeout=120s deployment/capiovh-controller-manager -n capiovh-system
+
+      - name: Create OVH credentials secret
+        env:
+          OVH_ENDPOINT: ${{ secrets.OVH_ENDPOINT }}
+          OVH_APP_KEY: ${{ secrets.OVH_APP_KEY }}
+          OVH_APP_SECRET: ${{ secrets.OVH_APP_SECRET }}
+          OVH_CONSUMER_KEY: ${{ secrets.OVH_CONSUMER_KEY }}
+        run: |
+          kubectl create namespace fleet-default || true
+          kubectl create secret generic ovh-credentials \
+            --namespace=fleet-default \
+            --from-literal=endpoint="$OVH_ENDPOINT" \
+            --from-literal=applicationKey="$OVH_APP_KEY" \
+            --from-literal=applicationSecret="$OVH_APP_SECRET" \
+            --from-literal=consumerKey="$OVH_CONSUMER_KEY"
+
+      - name: Apply ClusterClass
+        run: |
+          kubectl apply -n fleet-default \
+            -f templates/clusterclass/rke2/clusterclass-ovhcloud-rke2.yaml
+
+      - name: Run E2E lifecycle test
+        env:
+          OVH_SERVICE_NAME: ${{ secrets.OVH_SERVICE_NAME }}
+          OVH_FLOATING_NETWORK_ID: ${{ secrets.OVH_FLOATING_NETWORK_ID }}
+          OVH_SSH_KEY: ${{ secrets.OVH_SSH_KEY }}
+        run: |
+          ./test/e2e/run-full-cluster-test.sh "e2e-ci-$(date +%s | tail -c 6)"
+        timeout-minutes: 30
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          kubectl logs -n capiovh-system deploy/capiovh-controller-manager --tail=100 > /tmp/controller.log 2>&1 || true
+          kubectl get cluster,ovhcluster,ovhmachine,machine -A -o yaml > /tmp/resources.yaml 2>&1 || true
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6db9b8a1f7c064bc2f44aea01cf60 # v4.6.2
+        with:
+          name: e2e-logs
+          path: /tmp/*.log
+          retention-days: 7
+
+      - name: Cleanup OVH resources
+        if: always()
+        run: |
+          kubectl delete cluster.cluster.x-k8s.io -A --all --wait=false 2>/dev/null || true
+          sleep 120
+          kubectl get ovhcluster,ovhmachine -A 2>/dev/null || true

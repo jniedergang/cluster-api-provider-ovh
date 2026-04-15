@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -505,6 +506,14 @@ func (r *OVHMachineReconciler) createInstance(scope *MachineScope) (reconcile.Re
 		"region", scope.OVHCluster.Spec.Region,
 	)
 
+	// Merge cluster-level and machine-level tags
+	tags := make(map[string]string)
+	maps.Copy(tags, scope.OVHCluster.Spec.DefaultTags)
+	maps.Copy(tags, scope.OVHMachine.Spec.Tags)
+
+	tags["capiovh-cluster"] = scope.Cluster.Name
+	tags["capiovh-machine"] = scope.OVHMachine.Name
+
 	instance, err := scope.OVHClient.CreateInstance(ovhclient.CreateInstanceOpts{
 		Name:     instanceName,
 		FlavorID: flavor.ID,
@@ -513,6 +522,7 @@ func (r *OVHMachineReconciler) createInstance(scope *MachineScope) (reconcile.Re
 		SSHKeyID: sshKeyID,
 		UserData: userData,
 		Networks: networks,
+		Metadata: tags,
 	})
 	if err != nil {
 		capiovhmetrics.MachineCreateErrorsTotal.Inc()

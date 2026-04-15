@@ -99,6 +99,15 @@ type OVHMachineSpec struct {
 	// FailureDomain is the availability zone.
 	// +optional
 	FailureDomain string `json:"failureDomain,omitempty"`
+
+	// SecurityGroupNames lists security group names to apply to this instance.
+	// Must match names defined in the parent OVHCluster.spec.securityGroups.
+	// +optional
+	SecurityGroupNames []string `json:"securityGroupNames,omitempty"`
+
+	// Tags is metadata tags to apply to the instance.
+	// +optional
+	Tags map[string]string `json:"tags,omitempty"`
 }
 
 // OVHMachineStatus defines the observed state of OVHMachine.

@@ -365,6 +365,40 @@ spec:
                 - host
                 - port
                 type: object
+              defaultTags:
+                additionalProperties:
+                  type: string
+                description: |-
+                  DefaultTags are metadata tags applied to all instances in the cluster.
+                  Machine-level tags override cluster-level tags with the same key.
+                type: object
+              dnsConfig:
+                description: |-
+                  DNSConfig configures automatic DNS record management for the control plane endpoint.
+                  Requires OVH API credentials with /domain/* scope.
+                properties:
+                  recordName:
+                    description: |-
+                      RecordName is the DNS A record name (e.g. "k8s-api" → k8s-api.example.com).
+                      Defaults to the cluster name if empty.
+                    type: string
+                  ttl:
+                    default: 300
+                    description: TTL is the DNS record TTL in seconds.
+                    type: integer
+                  zoneName:
+                    description: ZoneName is the OVH DNS zone (e.g. "example.com").
+                    type: string
+                required:
+                - zoneName
+                type: object
+              failureDomains:
+                description: |-
+                  FailureDomains is a list of availability zones to use.
+                  If empty, the controller auto-discovers zones from the OVH API.
+                items:
+                  type: string
+                type: array
               identitySecret:
                 description: |-
                   IdentitySecret references the Secret containing OVH API credentials.
@@ -474,6 +508,56 @@ spec:
                 description: Region is the OVH Cloud region (e.g. "GRA7", "SBG5",
                   "BHS5").
                 type: string
+              securityGroups:
+                description: SecurityGroups defines security groups to create and
+                  apply to cluster instances.
+                items:
+                  description: OVHSecurityGroup defines a security group to create
+                    and apply to cluster instances.
+                  properties:
+                    name:
+                      description: Name is the security group name.
+                      type: string
+                    rules:
+                      description: Rules is the list of security group rules.
+                      items:
+                        description: OVHSecurityRule defines a single firewall rule
+                          in a security group.
+                        properties:
+                          direction:
+                            description: Direction is "ingress" or "egress".
+                            enum:
+                            - ingress
+                            - egress
+                            type: string
+                          etherType:
+                            default: IPv4
+                            description: EtherType is "IPv4" or "IPv6".
+                            type: string
+                          portRangeMax:
+                            description: PortRangeMax is the end of the port range.
+                            format: int32
+                            type: integer
+                          portRangeMin:
+                            description: PortRangeMin is the start of the port range.
+                            format: int32
+                            type: integer
+                          protocol:
+                            description: Protocol is tcp, udp, icmp, or empty for
+                              any.
+                            type: string
+                          remoteIPPrefix:
+                            description: RemoteIPPrefix is the CIDR for allowed source/dest
+                              (e.g. "0.0.0.0/0").
+                            type: string
+                        required:
+                        - direction
+                        type: object
+                      type: array
+                  required:
+                  - name
+                  type: object
+                type: array
               serviceName:
                 description: ServiceName is the OVH Public Cloud project ID.
                 type: string
@@ -542,6 +626,31 @@ spec:
                   - type
                   type: object
                 type: array
+              dnsRecordID:
+                description: DNSRecordID is the ID of the DNS A record created for
+                  the control plane endpoint.
+                format: int64
+                type: integer
+              failureDomains:
+                additionalProperties:
+                  description: |-
+                    FailureDomainSpec is the Schema for Cluster API failure domains.
+                    It allows controllers to understand how many failure domains a cluster can optionally span across.
+                  properties:
+                    attributes:
+                      additionalProperties:
+                        type: string
+                      description: attributes is a free form map of attributes an
+                        infrastructure provider might use or require.
+                      type: object
+                    controlPlane:
+                      description: controlPlane determines if this failure domain
+                        is suitable for use by control plane machines.
+                      type: boolean
+                  type: object
+                description: FailureDomains reports the availability zones discovered
+                  in the region.
+                type: object
               failureMessage:
                 description: FailureMessage is a full error message dump of the above
                   failureReason.
@@ -594,6 +703,12 @@ spec:
                   RegisterPoolID is the ID of the backend pool for the RKE2 supervisor
                   port on the load balancer.
                 type: string
+              securityGroupIDs:
+                additionalProperties:
+                  type: string
+                description: SecurityGroupIDs maps security group names to their OVH
+                  IDs.
+                type: object
               subnetID:
                 description: SubnetID is the ID of the subnet being used.
                 type: string

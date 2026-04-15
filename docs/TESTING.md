@@ -102,26 +102,70 @@ in the release CHANGELOG entry rather than continuously re-run.
 
 Status legend: ✅ passed live | ⚠️ passed with caveat | ❌ blocked | ⏳ planned
 
-| #  | Scenario                                              | Status | First validated | Notes |
-|----|-------------------------------------------------------|--------|-----------------|-------|
-| 1  | Cluster create via Rancher UI (1 CP + 1 worker)       | ✅      | v0.2.0          | ~7 min on v1.32.4+rke2r1 |
-| 2  | Cluster create via kubectl (1 CP + 1 worker)          | ✅      | v0.2.0          | ~10 min |
-| 3  | Cluster delete + 0 OVH residual                       | ✅      | v0.2.2          | FIP cleanup async-DELETE quirk handled correctly via convergence fix (treats `detached + down` as already-deleted). Re-validated v0.2.2 with parallel teardown of 2 clusters: 7 ovhmachines → 0 in 90 s; 2 ovhclusters → 0 in 195 s; only async-reap FIPs remain in OVH (no leak) |
-| 4  | Scale CP 1→3 + worker 1→2                             | ✅      | v0.2.2          | Re-tested live: workers 1→2 in ~2 min on warm cluster |
-| 5  | kubectl from external host via LB FIP                 | ✅      | v0.2.2          | Cert SAN includes FIP IP. Re-tested live |
-| 5b | kubectl via Rancher proxy                             | ✅      | v0.2.2          | All 4 nodes visible as `nodes.management.cattle.io` |
-| 6  | MachineDeployment self-heal (delete worker)           | ✅      | v0.3.0          | Re-tested v0.3.0: MHC CRs auto-created by ClusterClass (CP + worker, maxUnhealthy=34%, CURRENTHEALTHY=1 each). Worker delete → CAPI recreates new machine in ~2 min (delete + provision + Running). MHC in ClusterClass validated end-to-end |
-| 7  | k8s in-place upgrade (v1.33.10 → v1.34.6)             | ✅      | v0.2.2          | **15 m 32 s** total for 3 CPs + 2 workers. **100 % Rancher connectivity throughout** (Conn=True/Ready=True every poll). Each CP swap ~5 min: provision + etcd-join + drain + etcd-remove + delete |
-| 8  | Multi-cluster in same OVH project                     | ✅      | v0.2.2          | Requires distinct `vlanID` topology variable per cluster. Re-tested v0.2.2: cluster-2 (vlanID=200) created in 6 m 30 s to controlPlaneReady, +170 s to Rancher Active. `rancherServerCA` topology variable auto-creates `cattle-system/serverca` ConfigMap on workload — agent connects without manual intervention |
-| 9  | Webhook + CRD validation rejects bad input            | ✅      | v0.2.2          | 16/16 cases via `test/e2e/run-validation-tests.sh`. Found CRD apply quirk: `kubectl apply` may not always propagate new properties — use `kubectl replace` to refresh schema |
-| 10 | HA control-plane survives 1 CP failure                | ✅      | v0.2.2          | 3/3 CP recovers in 4m21s with **100 % API availability** measured via LB FIP (260 probes, 0 timeout) thanks to the Octavia health monitor (TCP, 5 s/3 s/2 retries, ~10 s detection). Without HM (v0.2.1) the same scenario was 14m12s and 52 % availability |
-| 11 | Etcd snapshot + restore                               | ⚠️      | v0.2.2          | List/create validated live (`manual-test-...-1776203719`, 10 MB on disk). Restore is documented and scripted (`scripts/rke2-etcd-snapshot.sh restore`) but intentionally not executed live to avoid destroying the running validation cluster. Note: OVH ubuntu image may not grant sudo NOPASSWD; fallback via privileged hostPID pod is documented in operations.md |
-| 12 | PVC via OVH block storage CSI                         | ⚠️      | v0.3.0          | Cinder CSI deployed (6/6 pods Running, 2 StorageClasses created). PVC provisioning returns 403 `volume:get_all` — the test OpenStack user lacks block-storage role. Structurally validated: chart installs, provisioner registers, StorageClass default works. Requires a user with `volume_admin` role for full PVC lifecycle |
-| 13 | Service type=LoadBalancer via cloud-controller        | ⚠️      | v0.3.0          | OpenStack CCM chart deployed, DaemonSet created on CP node. Pod CrashLoops on port 10258 conflict with RKE2's built-in `cloud-controller-manager` static pod. Deploying external CCM on RKE2 requires `--disable-cloud-controller` + `--cloud-provider=external` in RKE2ControlPlane config. Structurally validated: chart installs, tolerations/nodeSelector work, cloud-config mounted |
-| 14 | Multi-cluster simultaneous delete + cleanup           | ✅      | v0.2.2          | Both clusters cascade cleanly. FIP convergence fix validated live: controller correctly distinguishes `attached/active → retry` from `detached/down → treat as deleted`. Lingering OVH-side `down` FIPs are reaped async by OVH within minutes; no manual intervention. Pre-existing OVH 409 "Port has device owner router_centralized_snat" race during network delete is auto-recovered on next reconcile |
-| 15 | Scheduler stress (50-pod deployment)                  | ✅      | v0.2.2          | 50/50 pause pods Running in 12s, distributed across 3 CPs + 2 workers (CPs accept tolerations:Exists). Validates pod CIDR sizing (10.244.0.0/16) and scheduler throughput |
-| 16 | BYOI image (custom snapshot)                          | ✅      | v0.3.0          | `GetImageByName` BYOI fallback validated with 5 unit tests (exact, UUID, BYOI fallback, public preferred, not found). Snapshot `openSUSE-Leap-15.6` confirmed present on OVH project. Full cluster deploy with custom image requires RKE2-prepared snapshot |
-| 17 | 24 h soak (no leak, no OOMKilled, certs stable)       | ⏳      | —               | Long-running observability via Grafana |
+### Cluster lifecycle (validated since v0.2.0)
+
+| #  | Scenario                                              | Status | Validated | Notes |
+|----|-------------------------------------------------------|--------|-----------|-------|
+| 1  | Cluster create via Rancher UI (1 CP + 1 worker)       | ✅      | v0.2.0    | ~7 min on v1.32.4+rke2r1 |
+| 2  | Cluster create via kubectl (1 CP + 1 worker)          | ✅      | v0.2.0    | ~10 min |
+| 3  | Cluster delete + 0 OVH residual                       | ✅      | v0.2.2    | FIP cleanup async-DELETE quirk handled correctly via convergence fix (treats `detached + down` as already-deleted). Re-validated v0.2.2 with parallel teardown of 2 clusters: 7 ovhmachines → 0 in 90 s; 2 ovhclusters → 0 in 195 s; only async-reap FIPs remain in OVH (no leak) |
+| 4  | Scale CP 1→3 + worker 1→2                             | ✅      | v0.2.2    | Re-tested live: workers 1→2 in ~2 min on warm cluster |
+| 5  | kubectl from external host via LB FIP                 | ✅      | v0.2.2    | Cert SAN includes FIP IP. Re-tested live |
+| 5b | kubectl via Rancher proxy                             | ✅      | v0.2.2    | All 4 nodes visible as `nodes.management.cattle.io` |
+| 6  | MachineDeployment self-heal (delete worker)           | ✅      | v0.3.0    | MHC CRs auto-created by ClusterClass (CP + worker, maxUnhealthy=34%, CURRENTHEALTHY=1). Worker delete → CAPI recreates in ~2 min. MHC in ClusterClass validated end-to-end |
+| 7  | k8s in-place upgrade (v1.33.10 → v1.34.6)             | ✅      | v0.2.2    | **15 m 32 s** total for 3 CPs + 2 workers. **100 % Rancher connectivity throughout** (Conn=True/Ready=True every poll). Each CP swap ~5 min: provision + etcd-join + drain + etcd-remove + delete |
+| 8  | Multi-cluster in same OVH project                     | ✅      | v0.2.2    | Requires distinct `vlanID` per cluster. cluster-2 (vlanID=200) created in 6 m 30 s to controlPlaneReady, +170 s to Rancher Active |
+| 14 | Multi-cluster simultaneous delete + cleanup           | ✅      | v0.2.2    | Both clusters cascade cleanly. FIP convergence fix validated. Pre-existing OVH 409 race during network delete auto-recovered on next reconcile |
+| 15 | Scheduler stress (50-pod deployment)                  | ✅      | v0.2.2    | 50/50 pause pods Running in 12s, validates pod CIDR sizing (10.244.0.0/16) |
+
+### HA and resilience
+
+| #  | Scenario                                              | Status | Validated | Notes |
+|----|-------------------------------------------------------|--------|-----------|-------|
+| 10 | HA control-plane survives 1 CP failure                | ✅      | v0.2.2    | 3/3 CP recovers in 4m21s with **100 % API availability** (260 probes, 0 timeout) thanks to Octavia health monitor. Without HM (v0.2.1): 14m12s and 52 % availability |
+| 11 | Etcd snapshot + restore                               | ⚠️      | v0.2.2    | List/create validated live. Restore documented and scripted (`scripts/rke2-etcd-snapshot.sh`) but not executed live to avoid destroying cluster |
+| 17 | 24 h soak (no leak, no OOMKilled, certs stable)       | ⏳      | —         | Long-running observability via Grafana |
+
+### Validation and webhooks
+
+| #  | Scenario                                              | Status | Validated | Notes |
+|----|-------------------------------------------------------|--------|-----------|-------|
+| 9  | Webhook + CRD validation rejects bad input            | ✅      | v0.2.2    | 16/16 cases via `test/e2e/run-validation-tests.sh` |
+
+### v0.3.0 API and integration
+
+| #  | Scenario                                              | Status | Validated | Notes |
+|----|-------------------------------------------------------|--------|-----------|-------|
+| 18 | v1alpha2 CRDs served (dual v1alpha1+v1alpha2)         | ✅      | v0.3.0    | CRD reports `versions: [v1alpha1, v1alpha2]`, v1alpha2 is storage version. Controller watches v1alpha2 types. All cluster resources created in v1alpha2 |
+| 19 | Full E2E: create cluster → Active in Rancher          | ✅      | v0.3.0    | **462 s** (7m42s) from `kubectl apply` to `Ready=True` in Rancher. Includes OVH infra (network+LB+FIP+instances), RKE2 bootstrap, agent import, serverca mount. Fully automated, works first try |
+| 20 | MachineHealthCheck auto-created by ClusterClass       | ✅      | v0.3.0    | 2 MHC resources (CP + worker) automatically created when cluster uses `ovhcloud-rke2` topology. `maxUnhealthy=34%`, `nodeStartupTimeout=20m`, `CURRENTHEALTHY=1` on both |
+| 21 | Rancher import with serverca + STRICT_VERIFY          | ✅      | v0.3.0    | `rancherServerCA` topology variable creates `cattle-system/serverca` ConfigMap on workload. `scripts/import-to-rancher.sh` patches agent with emptyDir+initContainer (agent writes to CA path at runtime, ConfigMap mount is read-only). Agent connects via websocket, cluster reaches Active in ~30s after patch |
+| 22 | Controller upgrade v0.2.x → v0.3.0                    | ✅      | v0.3.0    | CAPIProvider image override to v0.3.0 + CRD apply via `infrastructure-components.yaml`. Controller restarts, watches v1alpha2 types, existing v1alpha1 resources served via `conversion: None` |
+
+### Addons (CSI, CCM)
+
+| #  | Scenario                                              | Status | Validated | Notes |
+|----|-------------------------------------------------------|--------|-----------|-------|
+| 12 | PVC via OVH block storage (Cinder CSI)                | ⚠️      | v0.3.0    | Cinder CSI deployed (6/6 pods Running, 2 StorageClasses created). PVC provisioning returns 403 — test OpenStack user lacks `volume_admin` role. **Structurally validated**: chart installs, provisioner registers, StorageClass works. Requires user with block-storage permissions for full PVC lifecycle |
+| 13 | Service type=LoadBalancer (OpenStack CCM)              | ⚠️      | v0.3.0    | CCM DaemonSet created on CP node. Pod CrashLoops on port 10258 conflict with RKE2's built-in `cloud-controller-manager`. **Structurally validated**: chart installs, tolerations/nodeSelector work, cloud-config mounted. Deploying external CCM on RKE2 requires `--disable-cloud-controller` + `--cloud-provider=external` in RKE2ControlPlane config |
+
+### BYOI (Bring Your Own Image)
+
+| #  | Scenario                                              | Status | Validated | Notes |
+|----|-------------------------------------------------------|--------|-----------|-------|
+| 16 | BYOI image (custom snapshot)                          | ✅      | v0.3.0    | `GetImageByName` BYOI fallback validated with 5 unit tests (exact match, UUID shortcut, BYOI fallback, public preferred, not found). Snapshot `openSUSE-Leap-15.6` confirmed present on OVH project via API. Full cluster deploy with custom image requires RKE2-prepared snapshot |
+
+### Summary
+
+| Category | Total | ✅ Pass | ⚠️ Caveat | ⏳ Planned |
+|----------|-------|---------|-----------|-----------|
+| Cluster lifecycle | 10 | 10 | 0 | 0 |
+| HA and resilience | 3 | 1 | 1 | 1 |
+| Validation | 1 | 1 | 0 | 0 |
+| v0.3.0 API and integration | 5 | 5 | 0 | 0 |
+| Addons (CSI, CCM) | 2 | 0 | 2 | 0 |
+| BYOI | 1 | 1 | 0 | 0 |
+| **Total** | **22** | **18** | **3** | **1** |
 
 Bug fixes uncovered by these scenarios are documented in
 [CHANGELOG.md](../CHANGELOG.md) and the [TROUBLESHOOTING.md](TROUBLESHOOTING.md)

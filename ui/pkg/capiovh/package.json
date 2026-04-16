@@ -23,5 +23,6 @@
     "> 1%",
     "last 2 versions",
     "not dead"
-  ]
+  ],
+  "icon": "https://raw.githubusercontent.com/jniedergang/cluster-api-provider-ovhcloud/main/ovhcloud-logo.png"
 }

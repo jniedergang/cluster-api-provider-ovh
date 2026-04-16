@@ -303,6 +303,19 @@ func (r *OVHMachineReconciler) ReconcileNormal(scope *MachineScope) (reconcile.R
 		}
 	}
 
+	// Adopt existing instance by explicit ID (cluster migration)
+	if instance == nil && scope.OVHMachine.Spec.ExistingInstanceID != "" {
+		logger.Info("Adopting existing instance by ID",
+			"instanceID", scope.OVHMachine.Spec.ExistingInstanceID)
+
+		inst, err := scope.OVHClient.GetInstance(scope.OVHMachine.Spec.ExistingInstanceID)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("adopting instance %s: %w", scope.OVHMachine.Spec.ExistingInstanceID, err)
+		}
+
+		instance = inst
+	}
+
 	if instance == nil {
 		// Try to find by name
 		instanceName := locutil.GenerateRFC1035Name(scope.Cluster.Name, scope.OVHMachine.Name)
@@ -751,6 +764,14 @@ func (r *OVHMachineReconciler) ReconcileDelete(scope *MachineScope) (reconcile.R
 
 	logger := log.FromContext(scope.Ctx)
 	logger.Info("Reconciling OVHMachine deletion ...")
+
+	// Adoption policy: if "keep" annotation is set, skip instance deletion
+	if scope.OVHMachine.Annotations["capiovh.cluster.x-k8s.io/adoption-policy"] == "keep" {
+		logger.Info("Adoption policy 'keep' set, skipping instance deletion")
+		controllerutil.RemoveFinalizer(scope.OVHMachine, infrav1.MachineFinalizer)
+
+		return ctrl.Result{}, nil
+	}
 
 	capiovhmetrics.MachineDeleteTotal.Inc()
 

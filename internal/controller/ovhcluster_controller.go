@@ -662,6 +662,22 @@ func subnetRange(cidr string) (start, end string) {
 func (r *OVHClusterReconciler) reconcileLoadBalancer(scope *ClusterScope) (reconcile.Result, error) {
 	logger := scope.Logger
 
+	// Adopt existing LB if ExistingLoadBalancerID is set
+	if scope.OVHCluster.Spec.LoadBalancerConfig.ExistingLoadBalancerID != "" &&
+		scope.OVHCluster.Status.LoadBalancerID == "" {
+		scope.OVHCluster.Status.LoadBalancerID = scope.OVHCluster.Spec.LoadBalancerConfig.ExistingLoadBalancerID
+		logger.Info("Adopting existing load balancer",
+			"lbID", scope.OVHCluster.Status.LoadBalancerID)
+	}
+
+	// Adopt existing FIP if ExistingFloatingIPID is set
+	if scope.OVHCluster.Spec.LoadBalancerConfig.ExistingFloatingIPID != "" &&
+		scope.OVHCluster.Status.FloatingIPID == "" {
+		scope.OVHCluster.Status.FloatingIPID = scope.OVHCluster.Spec.LoadBalancerConfig.ExistingFloatingIPID
+		logger.Info("Adopting existing floating IP",
+			"fipID", scope.OVHCluster.Status.FloatingIPID)
+	}
+
 	// If LB already exists, check its status
 	if scope.OVHCluster.Status.LoadBalancerID != "" {
 		lb, err := scope.OVHClient.GetLoadBalancer(scope.OVHCluster.Status.LoadBalancerID)
@@ -1089,6 +1105,8 @@ func (r *OVHClusterReconciler) ensurePoolHealthMonitor(scope *ClusterScope, pool
 }
 
 // ReconcileDelete handles deletion of OVH cluster infrastructure.
+//
+//nolint:gocyclo
 func (r *OVHClusterReconciler) ReconcileDelete(scope *ClusterScope) (reconcile.Result, error) {
 	reconcileStart := time.Now()
 
@@ -1100,6 +1118,14 @@ func (r *OVHClusterReconciler) ReconcileDelete(scope *ClusterScope) (reconcile.R
 
 	logger := scope.Logger
 	logger.Info("Reconciling OVHCluster deletion ...")
+
+	// Adoption policy: if "keep" annotation is set, skip OVH resource deletion
+	if scope.OVHCluster.Annotations["capiovh.cluster.x-k8s.io/adoption-policy"] == "keep" {
+		logger.Info("Adoption policy 'keep' set, skipping OVH resource deletion")
+		controllerutil.RemoveFinalizer(scope.OVHCluster, infrav1.ClusterFinalizer)
+
+		return ctrl.Result{}, nil
+	}
 
 	// Clean up DNS record
 	if scope.OVHCluster.Status.DNSRecordID != 0 && scope.OVHCluster.Spec.DNSConfig != nil {

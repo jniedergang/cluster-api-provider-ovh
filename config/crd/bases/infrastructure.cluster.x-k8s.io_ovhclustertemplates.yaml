@@ -348,6 +348,15 @@ spec:
                         description: LoadBalancerConfig describes how the OVH managed
                           load balancer should be configured.
                         properties:
+                          existingFloatingIPID:
+                            description: ExistingFloatingIPID references a pre-existing
+                              floating IP to adopt.
+                            type: string
+                          existingLoadBalancerID:
+                            description: |-
+                              ExistingLoadBalancerID references a pre-existing Octavia load balancer
+                              to adopt instead of creating a new one. Used for cluster adoption.
+                            type: string
                           flavorName:
                             default: small
                             description: |-

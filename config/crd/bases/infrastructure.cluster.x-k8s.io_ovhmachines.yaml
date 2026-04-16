@@ -289,6 +289,12 @@ spec:
                 - ignition
                 - raw
                 type: string
+              existingInstanceID:
+                description: |-
+                  ExistingInstanceID is the OVH instance UUID of a pre-existing instance
+                  to adopt. When set, the controller skips instance creation and manages
+                  the referenced instance. Used for cluster adoption / migration.
+                type: string
               failureDomain:
                 description: FailureDomain is the availability zone.
                 type: string

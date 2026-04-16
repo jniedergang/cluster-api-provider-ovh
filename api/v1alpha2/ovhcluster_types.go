@@ -104,6 +104,15 @@ type OVHLoadBalancerConfig struct {
 	// Listeners is a list of additional listeners beyond the default api-server listener (6443).
 	// +optional
 	Listeners []OVHListener `json:"listeners,omitempty"`
+
+	// ExistingLoadBalancerID references a pre-existing Octavia load balancer
+	// to adopt instead of creating a new one. Used for cluster adoption.
+	// +optional
+	ExistingLoadBalancerID string `json:"existingLoadBalancerID,omitempty"`
+
+	// ExistingFloatingIPID references a pre-existing floating IP to adopt.
+	// +optional
+	ExistingFloatingIPID string `json:"existingFloatingIPID,omitempty"`
 }
 
 // OVHListener describes an additional listener on the load balancer.

@@ -104,6 +104,7 @@ linters:
       - third_party$
       - builtin$
       - examples$
+      - ui/node_modules
 formatters:
   enable:
     - gci

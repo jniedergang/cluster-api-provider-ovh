@@ -114,6 +114,12 @@ type OVHMachineSpec struct {
 	// +kubebuilder:validation:Enum:="cloud-init";"ignition";"raw"
 	// +kubebuilder:default:="cloud-init"
 	BootstrapFormat string `json:"bootstrapFormat,omitempty"`
+
+	// ExistingInstanceID is the OVH instance UUID of a pre-existing instance
+	// to adopt. When set, the controller skips instance creation and manages
+	// the referenced instance. Used for cluster adoption / migration.
+	// +optional
+	ExistingInstanceID string `json:"existingInstanceID,omitempty"`
 }
 
 // OVHMachineStatus defines the observed state of OVHMachine.

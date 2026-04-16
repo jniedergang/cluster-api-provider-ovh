@@ -1,11 +1,8 @@
-import { IPlugin } from '@shell/core/types';
-
-export function init(plugin: IPlugin, store: any) {
+export function init(plugin, store) {
   const {
     product,
     basicType,
     virtualType,
-    configureType,
   } = plugin.DSL(store, 'capiovh');
 
   product({

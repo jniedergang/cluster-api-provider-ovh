@@ -2,6 +2,7 @@
 import { CAPI as RANCHER_CAPI } from '@shell/config/types';
 import { CAPIOVH } from '../types/capiovh';
 import Banner from '@components/Banner/Banner.vue';
+import ovhLogo from '../assets/ovhcloud-logo.png';
 
 export default {
   name: 'CAPIOVHDashboard',
@@ -32,6 +33,7 @@ export default {
       clusters:    [],
       ovhClusters: [],
       error:       null,
+      ovhLogo,
     };
   },
 
@@ -70,13 +72,21 @@ export default {
 
 <template>
   <div>
-    <h1 class="mb-20">
-      <img
-        src="../assets/ovhcloud-logo.png"
-        style="height: 32px; vertical-align: middle; margin-right: 10px;"
-      />
-      OVH Cloud Clusters
-    </h1>
+    <div class="header-row mb-20">
+      <h1>
+        <img
+          :src="ovhLogo"
+          style="height: 32px; vertical-align: middle; margin-right: 10px;"
+        />
+        OVH Cloud Kubernetes
+      </h1>
+      <button
+        class="btn role-primary"
+        @click="$router.push({ name: 'c-cluster-product-resource-create', params: { cluster: '_', product: 'manager', resource: 'cluster.x-k8s.io.cluster' } })"
+      >
+        Create Cluster
+      </button>
+    </div>
 
     <Banner
       v-if="error"
@@ -84,11 +94,22 @@ export default {
       :label="error"
     />
 
-    <Banner
+    <div
       v-if="!$fetchState.pending && clusters.length === 0 && !error"
-      color="info"
-      label="No OVH Cloud clusters found. Create one using the ClusterClass ovhcloud-rke2."
-    />
+      class="empty-state"
+    >
+      <h2>No OVH Cloud clusters yet</h2>
+      <p>
+        Create your first Kubernetes cluster on OVH Public Cloud using the
+        <code>ovhcloud-rke2</code> ClusterClass. The cluster will be fully
+        managed by Cluster API and integrated with Rancher.
+      </p>
+      <p class="text-muted mt-10">
+        Migrating from OVHcloud Managed Kubernetes? CAPIOVH provides the
+        same experience with full CAPI lifecycle management, MachineHealthCheck
+        auto-remediation, and topology-based upgrades.
+      </p>
+    </div>
 
     <table
       v-if="clusterRows.length > 0"
@@ -121,7 +142,11 @@ export default {
           <td>{{ row.region }}</td>
           <td>{{ row.cpReplicas }}</td>
           <td>{{ row.workerReplicas }}</td>
-          <td>{{ row.ready ? 'Yes' : 'No' }}</td>
+          <td>
+            <span :class="row.ready ? 'text-success' : 'text-warning'">
+              {{ row.ready ? '✓' : '...' }}
+            </span>
+          </td>
           <td>{{ row.age }}</td>
         </tr>
       </tbody>
@@ -130,6 +155,18 @@ export default {
 </template>
 
 <style scoped>
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+.empty-state h2 { margin-bottom: 10px; }
 .badge {
   padding: 3px 8px;
   border-radius: 3px;
@@ -140,4 +177,6 @@ export default {
 .bg-warning { background: #FF9800; }
 .bg-error { background: #F44336; }
 .bg-info { background: #2196F3; }
+.text-success { color: #4CAF50; font-weight: bold; }
+.text-warning { color: #FF9800; }
 </style>

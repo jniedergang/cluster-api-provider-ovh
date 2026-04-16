@@ -1,0 +1,11 @@
+{
+  "name": "capiovh",
+  "version": "0.1.0",
+  "rancher": {
+    "annotations": {
+      "catalog.cattle.io/ui-extensions-version": ">=2.0.0",
+      "catalog.cattle.io/display-name": "OVH Cloud CAPI Provider",
+      "catalog.cattle.io/namespace": "cattle-ui-plugin-system"
+    }
+  }
+}

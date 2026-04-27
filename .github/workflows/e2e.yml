@@ -48,6 +48,8 @@ jobs:
           cluster_name: capiovh-e2e
 
       - name: Install CAPI + RKE2 providers
+        env:
+          CLUSTER_TOPOLOGY: "true"
         run: |
           curl -sL https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.10.3/clusterctl-linux-amd64 -o /usr/local/bin/clusterctl
           chmod +x /usr/local/bin/clusterctl

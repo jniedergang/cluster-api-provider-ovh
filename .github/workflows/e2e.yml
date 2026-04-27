@@ -65,8 +65,12 @@ jobs:
 
       - name: Deploy CAPIOVH
         run: |
-          make deploy IMG=${{ env.REGISTRY }}/${{ env.ORG }}/${{ env.IMAGE_NAME }}-amd64:e2e
-          kubectl wait --for=condition=available --timeout=120s deployment/capiovh-controller-manager -n capiovh-system
+          IMG_FULL=${{ env.REGISTRY }}/${{ env.ORG }}/${{ env.IMAGE_NAME }}-amd64:e2e
+          make deploy IMG="$IMG_FULL"
+          # config/default/manager_image_patch.yaml hardcodes the upstream image
+          # and overrides the kustomize edit; patch the live deployment instead.
+          kubectl set image -n capiovh-system deployment/capiovh-controller-manager manager="$IMG_FULL"
+          kubectl wait --for=condition=available --timeout=180s deployment/capiovh-controller-manager -n capiovh-system
 
       - name: Create OVH credentials secret
         env:

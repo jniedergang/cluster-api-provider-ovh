@@ -102,6 +102,9 @@ jobs:
         run: |
           kubectl logs -n capiovh-system deploy/capiovh-controller-manager --tail=100 > /tmp/controller.log 2>&1 || true
           kubectl get cluster,ovhcluster,ovhmachine,machine -A -o yaml > /tmp/resources.yaml 2>&1 || true
+          kubectl describe pod -n capiovh-system -l control-plane=controller-manager > /tmp/pod-describe.log 2>&1 || true
+          kubectl get events -n capiovh-system --sort-by=.lastTimestamp > /tmp/events.log 2>&1 || true
+          docker exec capiovh-e2e-control-plane crictl --runtime-endpoint unix:///run/containerd/containerd.sock images > /tmp/crictl-images.log 2>&1 || true
 
       - name: Upload logs
         if: failure()
